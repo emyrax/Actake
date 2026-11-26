@@ -1,0 +1,6 @@
+{
+  "name": "Actake",
+  "description": "Cross-platform Solana social accountability & AI-verified habit staking protocol with Mobile Wallet Adapter (MWA) and Wallet Standard support.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

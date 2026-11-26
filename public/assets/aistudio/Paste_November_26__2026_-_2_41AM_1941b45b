@@ -1,0 +1,914 @@
+indly UPDAE THE UI NOT THE BRAND , STILL INCLUDE THE STAKE TO VERIFY THE DEADLINE . Explore the clean and intuitive onboarding and dashboard screens of a modern Habit Tracker App. Crafted to help users build better routines BY STAKING , JOIN COMMUNITIES , this UI delivers a motivating experience through daily challenges, personalized goals, and engaging progress analytics. A soft color palette, clean layout, and smooth user flow make habit tracking feel effortless and enjoyable.
+Like, save, and follow for more wellness-driven UI inspiration!
+actake_full_updated_details.webp
+actake_full_updated_details.webp
+actake_full_updated_details_guildes.webp
+actake_full_updated_details_guildes.webp
+actake_full_updated_icons.webp
+actake_full_updated_icons.webp
+actake_full_updated_details_about.webp
+actake_full_updated_details_about.webp
+actake_full_updated_ui_workflow.webp
+actake_full_updated_ui_workflow.webp
+actake_full_updated_screens_wireframe.webp
+actake_full_updated_screens_wireframe.webp
+actake_full_updated_ui.webp
+actake_full_updated_ui.webp
+actake_full_updated_ui_guide.webp
+actake_full_updated_ui_guide.webp
+Gemini 4 Neon
+Ran for 2m 18s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 2 files
+app/src/main/java/com/example/ui/theme/Color.kt
+app/src/main/java/com/example/ui/components/ActakeComponents.kt
+alway ask questions when neeed
+Gemini 4 Neon
+Ran for 6m 38s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 8 files
+app/src/main/java/com/example/ui/screens/OnboardingScreen.kt
+app/src/main/java/com/example/ui/screens/HomeScreen.kt
+app/src/main/java/com/example/ui/components/MainDashboard.kt
+app/src/main/java/com/example/ui/screens/HistoryScreen.kt
+app/src/main/java/com/example/ui/screens/AlarmSettingsScreen.kt
+app/src/main/java/com/example/MainActivity.kt
+app/src/main/java/com/example/ui/screens/SquadsScreen.kt
+app/src/main/java/com/example/ui/screens/MissionsScreen.kt
+Built
+Noted — I will always ask clarifying questions whenever requirements or design choices are ambiguous. I also finished the Actake UI refresh with the warm peach-and-lavender palette, floating black-and-orange capsule navigation bar, redesigned Daily Challenge dashboard with time-of-day filters and featured stake card, vertical pill bar analytics, and refreshed onboarding and alarm settings while keeping the Actake brand and all stake-to-verify deadline features intact. Let me know if you'd like to refine any specific screen or flow next.
+Checkpoint
+Build a detailed 'Transaction History' view that displays past stakes, showing successful redemptions, earned amounts, and failed penalties in a clean, chronologically organized list.
+Gemini 4 Neon
+Ran for 2m 46s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 3 files
+firebase-blueprint.json
+firestore.rules
+firestore.test.js
+change the squad to the community where users can explore habit join the stake
+Gemini 4 Neon
+Ran for 2m 24s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 5 files
+app/src/main/java/com/example/data/model/ActakeModels.kt
+app/src/main/java/com/example/data/repository/ActakeDataSource.kt
+app/src/main/res/values/strings.xml
+app/src/main/java/com/example/data/repository/ActakeRepository.kt
+app/src/main/java/com/example/data/repository/LocalActakeStore.kt
+implement the expolre screen , users acan expolre and join others habit
+image.png
+image.png
+Gemini 4 Neon
+Ran for 3m 8s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 3 files
+app/src/main/java/com/example/viewmodel/ActakeViewModel.kt
+app/src/main/java/com/example/ui/screens/TransactionHistoryView.kt
+app/src/main/java/com/example/ui/screens/HistoryScreen.kt
+move the heatmap coponent in the today screen to the stats screen. also the funding and withdraw componet must be at the hero section of the today screen
+Gemini 4 Neon
+Ran for 4m 14s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 7 files
+app/src/main/java/com/example/ui/screens/HistoryScreen.kt
+app/src/main/java/com/example/ui/screens/HomeScreen.kt
+app/src/main/java/com/example/ui/components/ActakeComponents.kt
+app/src/main/java/com/example/ui/screens/MissionsScreen.kt
+app/src/main/java/com/example/ui/screens/ExploreCommunitySheets.kt
+app/src/main/java/com/example/ui/screens/SquadsScreen.kt
+app/src/main/java/com/example/MainActivity.kt
+Failed to build
+analyse and rebrand this to actake and its solutions , hen update the readme.md
+image.png
+image.png
+Gemini 4 Neon
+Ran for 1m 4s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 2 files
+app/src/main/java/com/example/solana/ActakeEscrowProgram.kt
+README.md
+Built
+implement this workflow with stakes inbetween when needed for dedication
+image.png
+image.png
+Gemini 4 Neon
+Ran for 7m 2s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 8 files
+app/src/main/java/com/example/data/repository/HabitMetadataStore.kt
+app/src/main/java/com/example/ui/components/HabitActivationSheet.kt
+app/src/main/java/com/example/ui/screens/SettingsScreen.kt
+app/src/main/java/com/example/viewmodel/ActakeViewModel.kt
+app/src/main/java/com/example/ui/screens/HomeScreen.kt
+app/src/main/java/com/example/ui/screens/HistoryScreen.kt
+app/src/main/java/com/example/ui/screens/SquadsScreen.kt
+app/src/main/java/com/example/MainActivity.kt
+Built
+I have implemented the full Actake user flow with dedication stakes woven throughout: you can now launch a guided Habit Name → Frequency & Deadline → Motivation Notes → Dedication Stake → Save & Activate flow right from the Today screen or from curated Templates, Recommended, and Trending habit packs on the Explore tab. The Statistics tab now includes Category Status breakdowns and Progress Person-to-Person community comparisons alongside your streak heatmap and transaction history, and the new Settings screen (accessible from the top-right gear icon on Today) brings together the Seeker SKR 0%-fee perk, profile and wallet vault, Manage Habits with motivation notes, loud alarm strictness, FAQ, and logout.
+Checkpoint
+Implement a social feed screen where users can see their squad's activity, such as successful check-ins and completed stakes, to increase accountability.
+Gemini 4 Neon
+Ran for 3m 21s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 5 files
+app/src/main/java/com/example/ui/screens/SquadFeedScreen.kt
+app/src/main/java/com/example/viewmodel/ActakeViewModel.kt
+app/src/main/java/com/example/ui/screens/SquadsScreen.kt
+app/src/main/java/com/example/ui/screens/HomeScreen.kt
+app/src/main/java/com/example/MainActivity.kt
+write a detailed implementation plan on implementing supabase as the the backend nd the auth
+Gemini 4 Neon
+Ran for 1m 27s
+
+Action history
+Here are key actions taken for the app:
+
+Failed to build
+Which sign-in methods should Supabase Auth support in Actake?
+Google Sign-In and Email/Password
+How should AI photo verification run after moving auth and database to Supabase?
+Keep Firebase AI Logic for Gemini Vision
+Which Supabase features should be included in the backend migration?
+Postgres, Auth, and Realtime squad feed
+Should users still be able to use Actake locally with a Solana Seeker wallet before signing in to Supabase?
+Keep Seeker local mode plus optional Supabase sync
+Gemini 4 Neon
+Ran for 2m 27s
+
+Action history
+The implementation plan for migrating Actake's backend and authentication to Supabase is ready for your review.
+Proceed with
+
+Implementation plan
+Gemini 4 Neon
+Ran for 7m 38s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 16 files
+.env.example
+gradle/libs.versions.toml
+build.gradle.kts
+app/build.gradle.kts
+supabase/migrations/001_actake_schema.sql
+app/src/main/java/com/example/supabase/SupabaseClientProvider.kt
+app/src/main/java/com/example/supabase/SupabaseAuthManager.kt
+app/src/main/java/com/example/data/repository/SupabaseDtoModels.kt
+app/src/main/java/com/example/ui/components/SupabaseAuthSheet.kt
+app/src/main/java/com/example/data/repository/SupabaseActakeRepository.kt
+app/src/main/res/values/strings.xml
+app/src/main/java/com/example/viewmodel/ActakeViewModel.kt
+app/src/main/java/com/example/ui/screens/OnboardingScreen.kt
+app/src/main/java/com/example/ui/components/WalletAccountSheet.kt
+app/src/main/java/com/example/ui/screens/SettingsScreen.kt
+app/src/main/java/com/example/ui/screens/SquadFeedScreen.kt
+remove the stake screen and move , replace it with explore screen on the bottom nav bar
+Gemini 4 Neon
+Ran for 7m 48s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 5 files
+app/src/main/java/com/example/MainActivity.kt
+app/src/main/java/com/example/ui/components/ActakeComponents.kt
+app/src/main/java/com/example/ui/screens/MissionsScreen.kt
+.env.example
+app/src/main/java/com/example/supabase/SupabaseClientProvider.kt
+Built
+I have removed the Stake screen and moved Explore into its place on the bottom navigation bar (Today, Explore, Map, Stats), with new habit staking now launching directly through the guided activation sheet from any creation button. I also implemented the full Supabase backend and authentication layer—supporting Google Sign-In, Email/Password auth, PostgreSQL with Row-Level Security and atomic RPCs, and a live Realtime Squad Social Feed—while keeping Solana Seeker local mode and Firebase AI Logic for Gemini Vision intact.
+To activate live Supabase cloud sync, add SUPABASE_URL, SUPABASE_ANON_KEY, and GOOGLE_WEB_CLIENT_ID in the Secrets panel in AI Studio and run the SQL migration script in your Supabase SQL Editor.
+Security Warning: I have included your API keys in the generated APK file for this prototype. Please be aware that Android APKs can be easily decompiled, and these keys can be extracted by anyone who has access to the file. Do not share this APK file publicly or with unauthorized individuals to prevent potential misuse.
+Checkpoint
+how to get the env data , step by step guides and also a how does each look like ?
+Gemini 4 Neon
+Ran for 19s
+Here is how to get each of the 3 values, what they look like, and where to enter them.
+1. SUPABASE_URL and SUPABASE_ANON_KEY
+Go to supabase.com, sign in, and click New Project (or open your existing project).
+In the left sidebar, go to Project Settings (gear icon) → API (or Data API / API Keys).
+Copy Project URL for SUPABASE_URL.
+Copy the Publishable / anon public key for SUPABASE_ANON_KEY.
+Important: Do not use the service_role / secret key in the Android app.
+What they look like:
+SUPABASE_URL:
+Text
+https://abcdefghijklmno.supabase.co
+SUPABASE_ANON_KEY (either the newer publishable format or the classic JWT format):
+Text
+sb_publishable_AbCdEfGhIjKlMnOpQrStUvWxYz123456
+(or classic JWT format):
+Text
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiY2RlZmdoaWprbG1ubyIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMTU1NzYwMDB9.xYzAbCdEfGhIjKlMnOpQrStUvWxYz1234567890
+2. GOOGLE_WEB_CLIENT_ID (for Google Sign-In)
+Open Google Cloud Console and select (or create) a project.
+Go to APIs & Services → OAuth consent screen (or Google Auth Platform → Audience), choose External, fill in the app name (Actake) and support email, and save.
+Go to APIs & Services → Credentials → + Create Credentials → OAuth client ID.
+Set Application type to Web application (Android Credential Manager requires a Web Client ID for ID token exchange with Supabase).
+Under Authorized redirect URIs, add your Supabase callback URL:
+Text
+https://<your-project-ref>.supabase.co/auth/v1/callback
+Click Create and copy the Client ID (and Client Secret for the next step).
+Back in Supabase Dashboard → Authentication → Sign In / Providers → Google:
+Toggle Enable Sign in with Google ON.
+Paste your Client ID (and Client Secret), then click Save.
+Make sure Email provider is also enabled under Providers → Email.
+What it looks like:
+GOOGLE_WEB_CLIENT_ID:
+Text
+123456789012-a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6.apps.googleusercontent.com
+3. Add Them to AI Studio Secrets
+Open the Secrets panel in Google AI Studio.
+Add three entries using these exact names (without quotes):
+SUPABASE_URL
+SUPABASE_ANON_KEY
+GOOGLE_WEB_CLIENT_ID
+Save the secrets and rebuild/refresh the preview. (Do not put them in local.properties or commit them to .env.example.)
+4. One-Time Database Setup in Supabase
+In your Supabase Dashboard, open SQL Editor → New Query.
+Copy the full contents of supabase/migrations/001_actake_schema.sql from this project, paste it into the editor, and click Run.
+This creates all tables, Row-Level Security policies, atomic stake/wallet RPCs, and enables Realtime for the Squad Social Feed.
+Create a Supabase client singleton file app/src/main/java/com/example/data/SupabaseClient.kt using the URL and Anon Key from the .env file to enable communication with the backend.
+Gemini 4 Neon
+Ran for 1m 8s
+Edited 2 files
+app/src/main/java/com/example/data/SupabaseClient.kt
+app/src/main/java/com/example/supabase/SupabaseClientProvider.kt
+Built
+Created the centralized SupabaseClient singleton in app/src/main/java/com/example/data/SupabaseClient.kt, reading SUPABASE_URL and SUPABASE_ANON_KEY safely from .env via BuildConfig and initializing Auth, PostgREST, and Realtime on OkHttp. I also wired the existing Supabase provider to delegate directly to it so the entire app shares a single session and connection pool, and verified that the project compiles cleanly.
+Checkpoint
+supabase _anon : sb_publishable_m5quLRi2-h3g4OMiSdkQcg_ZP6U9f9V
+Gemini 4 Neon
+Ran for 25s
+For security reasons, I won't hardcode that key into the source code or .env.example. Instead, open the Secrets panel in AI Studio and add it under the exact name SUPABASE_ANON_KEY, along with your project's SUPABASE_URL (and GOOGLE_WEB_CLIENT_ID if you want Google Sign-In enabled). Once saved there, the app will pick them up automatically on the next build via BuildConfig.
+is this the project url :sb_secret_vmsZ-uKEw8iG0AsgU8XqpQ_kMWr2h8k if no , how to i get it
+Gemini 4 Neon
+Ran for 13s
+No — do not use that in the app. Anything starting with sb_secret_ is your Supabase Secret Key (admin-level access that bypasses Row-Level Security). Because it was shared in chat, you should revoke and rotate it right away in Supabase Dashboard → Project Settings → API Keys.
+How to get your actual SUPABASE_URL
+Open your project in the Supabase Dashboard.
+Click Project Settings (gear icon in the bottom-left sidebar) → Data API (or click the Connect button in the top bar → App Frameworks / API).
+Copy the Project URL — it always looks like a web address starting with https:// and ending with .supabase.co:
+Text
+https://abcdefghijklmnop.supabase.co
+Add that URL in the Secrets panel in AI Studio as SUPABASE_URL, and use only your sb_publishable_... key for SUPABASE_ANON_KEY.
+NEXT_PUBLIC_SUPABASE_URL=https://aacrqdrcrfasfxcmtnjr.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_m5quLRi2-h3g4OMiSdkQcg_ZP6U9f9V
+Gemini 4 Neon
+Ran for 11s
+Yes — those are the exact right values! Since I can't hardcode keys into source files, add them in the Secrets panel in AI Studio using these exact names (without the NEXT_PUBLIC_ prefix):
+SUPABASE_URL → https://aacrqdrcrfasfxcmtnjr.supabase.co
+SUPABASE_ANON_KEY → your sb_publishable_... key
+GOOGLE_WEB_CLIENT_ID (optional, for Google Sign-In) → your Google OAuth Web Client ID
+Once saved in the Secrets panel (and after running supabase/migrations/001_actake_schema.sql in your Supabase SQL Editor), rebuild/refresh the preview and Actake will connect automatically via BuildConfig.
+Create a AuthRepository class to handle user registration and login using Supabase Auth, integrating Google Sign-In and email/password support as outlined in the implementation plan.
+Gemini 4 Neon
+Ran for 13s
+How should AuthRepository integrate with the existing Supabase auth layer?
+Replace direct manager calls with AuthRepository interface
+How should AuthRepository handle new user registration and verification?
+Auto-seed profile and handle email confirmation state
+Should we include JVM unit tests for AuthRepository validation and auth flows?
+Yes, add JVM unit tests for validation and flows
+Gemini 4 Neon
+Ran for 53s
+The implementation plan for the AuthRepository interface, SupabaseAuthRepository, profile auto-seeding, and JVM unit tests is ready for your review.
+Proceed with
+
+Implementation plan
+Gemini 4 Neon
+Ran for 4m 22s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 6 files
+app/src/main/java/com/example/data/repository/AuthRepository.kt
+app/src/main/java/com/example/supabase/SupabaseAuthManager.kt
+app/src/main/java/com/example/data/repository/SupabaseActakeRepository.kt
+app/src/main/java/com/example/ui/components/SupabaseAuthSheet.kt
+app/src/main/java/com/example/MainActivity.kt
+app/src/test/java/com/example/data/repository/AuthRepositoryTest.kt
+Built
+I created the AuthRepository interface and SupabaseAuthRepository implementation backed by your centralized SupabaseClient singleton, supporting native Google Sign-In, email/password registration and login, password resets, automatic profile seeding, and email-confirmation-pending handling. All direct SupabaseAuthManager calls in the repository, auth sheet, and main activity have been switched over to AuthRepository, and the full build plus all new JVM unit tests pass. Make sure SUPABASE_URL, SUPABASE_ANON_KEY, and GOOGLE_WEB_CLIENT_ID are saved in the AI Studio Secrets panel so live sign-in works on device.
+Checkpoint
+Implement the requested JVM unit tests in a new test file to validate the AuthRepository workflows, including edge cases for registration and login validation.
+Gemini 4 Neon
+Ran for 1m 49s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 1 file
+app/src/test/java/com/example/data/repository/AuthRepositoryEdgeCasesTest.kt
+Built
+I added a new JVM unit test suite (AuthRepositoryEdgeCasesTest) covering registration and login validation boundaries, malformed emails, display-name truncation and fallbacks, Credential Manager failure modes, non-fatal profile seeding errors, cancellation handling, and session lifecycle transitions. Both the new edge-case suite and the existing AuthRepository tests passed, and the app builds cleanly.
+Checkpoint
+Create a Compose LoginScreen that integrates the AuthRepository to handle Google Sign-In and email/password state flows.
+Gemini 4 Neon
+Ran for 3m 16s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 5 files
+app/src/main/res/values/strings.xml
+app/src/main/java/com/example/viewmodel/LoginViewModel.kt
+app/src/main/java/com/example/ui/screens/LoginScreen.kt
+app/src/main/java/com/example/MainActivity.kt
+app/src/test/java/com/example/viewmodel/LoginViewModelTest.kt
+Built
+Running the LoginViewModelTest and AuthRepository unit tests now.
+I created a full-screen Jetpack Compose LoginScreen backed by LoginViewModel and integrated with AuthRepository to handle Google Sign-In, email/password sign-in and registration, password reset, inline validation, and email-confirmation-pending states. It is now wired into the onboarding cloud login flow with back navigation, and both the app build and all LoginViewModel and AuthRepository unit tests pass.
+I created the full-screen LoginScreen and its backing LoginViewModel integrated with AuthRepository to drive reactive Google Sign-In, email/password sign-in and registration, inline field validation, password reset, and email-confirmation-pending flows. I also wired LoginScreen into the onboarding cloud login flow in MainActivity and added unit tests for LoginViewModel; the app builds cleanly and all login and auth unit tests pass.
+Checkpoint
+Create a UserProfile model and a repository function to fetch and store user profile data in Supabase upon successful registration, ensuring fields like displayName and stakeBalance are initialized.
+Gemini 4 Neon
+Ran for 4m 18s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 6 files
+app/src/main/java/com/example/data/model/ActakeModels.kt
+app/src/main/java/com/example/data/repository/SupabaseDtoModels.kt
+app/src/main/java/com/example/data/repository/UserProfileRepository.kt
+app/src/main/java/com/example/data/repository/AuthRepository.kt
+app/src/main/java/com/example/data/repository/SupabaseActakeRepository.kt
+app/src/test/java/com/example/data/repository/UserProfileRepositoryTest.kt
+Built
+Running the UserProfileRepositoryTest, AuthRepository, and LoginViewModelTest unit tests now.
+I updated the UserProfile model with an explicit stakeBalance field and starter factory (UserProfile.createInitial) and created UserProfileRepository / SupabaseUserProfileRepository with fetchUserProfile, storeUserProfile, and initializeProfileOnRegistration backed by Supabase PostgREST. Registration and login in AuthRepository and SupabaseActakeRepository now automatically fetch or persist the initialized displayName and stakeBalance in public.profiles, and the app build plus all profile, auth, and login unit tests pass.
+I updated the UserProfile model with an explicit stakeBalance field and an initial profile factory (UserProfile.createInitial) alongside bidirectional ProfileDto mapping, and created UserProfileRepository (SupabaseUserProfileRepository) with fetchUserProfile, storeUserProfile, and initializeProfileOnRegistration backed by Supabase PostgREST. Registration and login flows in AuthRepository and SupabaseActakeRepository now automatically fetch or persist initialized displayName and stakeBalance profile rows, and both the app build and all unit tests pass.
+Checkpoint
+i need a detailed step by step guide to get :GOOGLE_WEB_CLIENT_ID
+image.png
+image.png
+Gemini 4 Neon
+Ran for 43s
+You are already on the exact right screen in Google Cloud Console (Google Auth Platform → Clients → Create client). Follow these steps right from where you are:
+Step 1: Finish Creating the Web OAuth Client (in your screenshot)
+Application type: Keep Web application selected. (Important: Both Android Credential Manager and Supabase require the Web Client ID, not the Android one.)
+Name: Change Web client 1 to something clear like Actake Web Client.
+Scroll down to Authorized JavaScript origins:
+Click + Add URI and enter your Supabase project URL:
+Text
+https://aacrqdrcrfasfxcmtnjr.supabase.co
+Scroll down to Authorized redirect URIs:
+Click + Add URI and enter your Supabase Auth callback URL:
+Text
+https://aacrqdrcrfasfxcmtnjr.supabase.co/auth/v1/callback
+Click Create at the bottom.
+Step 2: Copy Your GOOGLE_WEB_CLIENT_ID
+A confirmation popup ("OAuth client created") will appear immediately.
+Copy the Client ID — it looks like this:
+Text
+123456789012-abc123def456ghi789jkl012mno345pq.apps.googleusercontent.com
+That value is your GOOGLE_WEB_CLIENT_ID.
+Also copy the Client secret (starts with GOCSPX-...) for Supabase in Step 4. (Never put the Client Secret in your Android app or chat.)
+Step 3: Add GOOGLE_WEB_CLIENT_ID to AI Studio Secrets
+Open the Secrets panel in AI Studio.
+Add the secret:
+Key: GOOGLE_WEB_CLIENT_ID
+Value: <paste the .apps.googleusercontent.com Client ID>
+Make sure your other two secrets are also saved there:
+SUPABASE_URL = https://aacrqdrcrfasfxcmtnjr.supabase.co
+SUPABASE_ANON_KEY = sb_publishable_...
+Step 4: Enable Google Sign-In in Supabase
+Open your Supabase Dashboard → Authentication → Sign In / Providers → Google.
+Toggle Enable Sign in with Google to ON.
+Paste the same Web Client ID into Client IDs and paste the Client Secret into Client Secret (for OAuth).
+Leave Skip nonce checks OFF (Actake generates and verifies a SHA-256 nonce automatically).
+Click Save.
+Step 5: Allow Your Test Account & Register the Android App (Required for Android Sign-In)
+Add Test Users: In Google Cloud Console left sidebar, click Audience → under Test users, click + Add users and add the Gmail account(s) you'll sign in with on the emulator/device (or click Publish app).
+Create a companion Android Client (so Google Play Services authorizes this APK to request tokens for your Web Client ID):
+Go back to Clients → + Create client.
+Application type: Android
+Package name: com.aistudio.actake.vkwxpm
+SHA-1 certificate fingerprint: Enter your app's debug (and later release) SHA-1 fingerprint and click Create.
+(Note: You do not replace GOOGLE_WEB_CLIENT_ID with the Android Client ID — keep GOOGLE_WEB_CLIENT_ID set to the Web Client ID from Step 2.)
+Checkpoint
+help me with this : SHA-1 certificate fingerprint: Enter your app's debug (and later release) SHA-1 fingerprint
+Gemini 4 Neon
+Ran for 39s
+
+Action history
+Here is your app's exact Debug SHA-1 certificate fingerprint extracted from this project's debug keystore:
+Application type: Android
+Package name:
+Text
+com.aistudio.actake.vkwxpm
+SHA-1 certificate fingerprint (Debug):
+Text
+8A:8E:85:E9:C3:56:15:85:12:14:2B:7B:40:DD:4F:30:B2:95:C7:62
+Paste those values into Google Auth Platform → Clients → Create client (Android) and click Create.
+What about your Release SHA-1 later?
+While testing in AI Studio / debug APKs: Only the Debug SHA-1 above is needed.
+When you publish to Google Play: Open Google Play Console → Your App → Test and release → Setup → App signing, copy the App signing key certificate SHA-1, and create one more Android OAuth Client in Google Cloud Console with the same package name (com.aistudio.actake.vkwxpm) and that release SHA-1. (If you export and sign a local release APK yourself, run keytool -list -v -keystore <your-release-keystore.jks> to print its SHA-1.)
+(Reminder: Keep GOOGLE_WEB_CLIENT_ID in AI Studio Secrets set to your Web Client ID—do not replace it with this Android Client ID.)
+how to implement this :allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard. Set up attack protection and adjust rate limits to counter abuse.
+Gemini 4 Neon
+Ran for 26s
+on supabase
+Gemini 4 Neon
+Ran for 38s
+Here is the exact step-by-step guide to configure Sign in with Solana (SIWS), Attack Protection, and Rate Limits in your Supabase Dashboard:
+Step 1: Enable the Solana Web3 Provider
+Open your Supabase Dashboard (aacrqdrcrfasfxcmtnjr).
+In the left sidebar, go to Authentication → Sign In / Providers.
+Scroll down to Web3 Wallet (or Solana) and click it.
+Toggle Enable Sign in with Solana to ON.
+Click Save.
+Step 2: Whitelist Your SIWS Domain & URI (Required for EIP-4361 Validation)
+Supabase validates every SIWS (EIP-4361) message by checking that the message's domain and URI match your allowed URLs. If they don't match, Supabase rejects the sign-in with an invalid URI/domain error.
+Go to Authentication → URL Configuration.
+Set Site URL to:
+Text
+https://actake.app
+Under Redirect URLs, click Add URL and add:
+Text
+https://actake.app/**
+Click Save.
+(Actake's SIWS message uses actake.app and https://actake.app, so adding those ensures Supabase accepts the signed payload.)
+Step 3: Set Up Attack Protection
+Because anyone can generate unlimited Solana keypairs offline and call your Web3 sign-in endpoint, Supabase warns you to turn on abuse protection:
+Go to Authentication → Attack Protection (in some dashboard views, Authentication → Bot and Abuse Protection).
+Review Enable Captcha protection:
+While testing on Android: Keep CAPTCHA OFF for now — native Android apps don't automatically render a browser CAPTCHA widget, so turning it on will block native mobile sign-ins unless a CAPTCHA token is passed from a WebView/widget.
+If you add a Web frontend later: Turn it ON, choose Cloudflare Turnstile (free & lightweight) or hCaptcha, and paste your Site Secret Key.
+Keep Prevent use of leaked passwords and email/phone protections enabled if you also allow Email/Password login.
+Click Save.
+Step 4: Adjust Rate Limits (Your Primary Defense on Mobile)
+Since native Android SIWS relies heavily on rate limiting to prevent wallet-creation spam:
+Go to Authentication → Rate Limits.
+Find Web3 sign-ins (or Anonymous & Web3 sign-ins):
+Default is usually 30 requests per 5 minutes per IP.
+Lower it to 10 requests per 5 minutes (or 15 if testing multiple devices on the same Wi-Fi) so bots cannot flood your auth.users table with fake wallets.
+Check Token refreshes:
+Keep this at 30–60 per 5 minutes so legitimate users switching screens or resuming the app aren't locked out.
+Click Save.
+Step 5: Verify Your profiles Trigger Handles Wallet-Only Users
+Good news — your SQL migration (001_actake_schema.sql) already has a safe handle_new_user() trigger that falls back to 'Seeker' when NEW.email is NULL (which happens for Web3 wallet users who have no email address), so new Solana sign-ins won't crash your database trigger!
+Would you also like me to wire Actake's AuthRepository to call Supabase's POST /auth/v1/token?grant_type=web3 endpoint (sending an EIP-4361-compliant SIWS message + Ed25519 signature) so Connect Solana Seeker signs users directly into a real Supabase Auth session?
+Checkpoint
+yh and tell me what i need to do on my own end
+Gemini 4 Neon
+Ran for 6m 18s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 10 files
+app/src/main/java/com/example/solana/SolanaSeekerWalletManager.kt
+app/src/main/java/com/example/data/repository/AuthRepository.kt
+app/src/main/java/com/example/supabase/SupabaseAuthManager.kt
+app/src/main/res/values/strings.xml
+app/src/main/java/com/example/viewmodel/LoginViewModel.kt
+app/src/main/java/com/example/ui/screens/LoginScreen.kt
+app/src/main/java/com/example/MainActivity.kt
+app/src/test/java/com/example/data/repository/AuthRepositoryTest.kt
+app/src/test/java/com/example/data/repository/AuthRepositoryEdgeCasesTest.kt
+app/src/test/java/com/example/viewmodel/LoginViewModelTest.kt
+Built
+Running the updated AuthRepository, UserProfileRepository, and LoginViewModel unit tests now.
+I wired Solana SIWS (EIP-4361) directly into AuthRepository (POST /auth/v1/token?grant_type=web3 with Base64 Ed25519 signature verification, session import, and automatic wallet-linked profile initialization), added a Sign in with Solana (SIWS) button to LoginScreen, and connected onboarding Seeker login to authenticate into Supabase with automatic fallback to local mode. The app builds cleanly and all unit tests pass.
+What You Need to Do on Your End
+Supabase Dashboard — Enable Solana Web3 Auth
+Go to Authentication → Sign In / Providers → Web3 Wallet (Solana) and toggle Enable Sign in with Solana to ON, then click Save.
+Supabase Dashboard — Allow Actake's SIWS Domain & URI
+Go to Authentication → URL Configuration.
+Set Site URL to https://actake.app and add https://actake.app/** under Redirect URLs, then click Save.
+Supabase Dashboard — Attack Protection & Rate Limits
+Under Authentication → Attack Protection: keep CAPTCHA protection OFF while testing on Android (native mobile sign-in doesn't render a web CAPTCHA widget).
+Under Authentication → Rate Limits: set Web3 sign-ins to 10–15 requests per 5 minutes per IP to prevent abuse, and click Save.
+Supabase Dashboard — Run the Database Schema (if you haven't yet)
+Open SQL Editor in Supabase and run supabase/migrations/001_actake_schema.sql once so public.profiles and the signup trigger exist.
+AI Studio — Secrets Panel
+Confirm these keys are saved in the Secrets panel:
+SUPABASE_URL = https://aacrqdrcrfasfxcmtnjr.supabase.co
+SUPABASE_ANON_KEY = your sb_publishable_... key
+GOOGLE_WEB_CLIENT_ID = your Google Web Client ID (.apps.googleusercontent.com)
+I wired Sign in with Solana (SIWS, EIP-4361) into AuthRepository, SolanaSeekerWalletManager, LoginScreen, and OnboardingScreen so tapping Sign in with Solana (SIWS) (or connecting Seeker on onboarding) signs an EIP-4361 message with Ed25519, exchanges it with Supabase's /auth/v1/token?grant_type=web3 endpoint, imports the live session, and automatically initializes the user's profiles row with their wallet address, displayName, and stakeBalance. The app compiles cleanly and all unit tests pass.
+What you need to do on your own end
+Supabase Dashboard → Authentication → Sign In / Providers → Web3 Wallet
+Turn Enable Sign in with Solana ON and click Save.
+Supabase Dashboard → Authentication → URL Configuration
+Set Site URL to https://actake.app.
+Under Redirect URLs, add https://actake.app/** and click Save.
+Supabase Dashboard → Authentication → Attack Protection
+Keep CAPTCHA OFF while testing on Android (mobile native SIWS does not use a browser CAPTCHA widget).
+Supabase Dashboard → Authentication → Rate Limits
+Lower Web3 sign-ins to 10–15 requests per 5 minutes per IP and click Save.
+Supabase Dashboard → SQL Editor (if not already run)
+Run the schema in supabase/migrations/001_actake_schema.sql once so public.profiles, RLS policies, and the handle_new_user() trigger exist.
+AI Studio Secrets panel
+Make sure SUPABASE_URL, SUPABASE_ANON_KEY, and GOOGLE_WEB_CLIENT_ID are saved there (never in source code).
+Checkpoint
+I want you to check the user flow and identify what is fake, what is demo data, and what is not real. I want to push this thing and then make a real-life application of this where people can actually sign in and use this platform, without demo data and all these things.
+So, what is demo data and what have I not included? And again, for the platform data, I need to host a contract on this Solana.
+Gemini 4 Neon
+Ran for 1m 15s
+
+Action history
+Here is an honest, file-by-file audit of what is real, what is demo/simulated, what is missing for a real-life launch, and how to deploy your real Solana smart contract.
+1. What Is Already Real
+Supabase Auth (AuthRepository): Real Google Sign-In (Credential Manager + SHA-256 nonce), real Email/Password auth & password reset, and real EIP-4361 Solana SIWS (POST /auth/v1/token?grant_type=web3).
+Supabase Database & Realtime (001_actake_schema.sql, SupabaseActakeRepository): Real PostgreSQL tables, Row-Level Security (RLS), atomic SECURITY DEFINER RPCs, and live Realtime squad feeds.
+Camera + AI Vision (VisionOracleRepository, ActiveAlarmScreen): Real CameraX live photo capture and real Gemini multimodal verification & image generation via Firebase AI Logic.
+Alarms, GPS, & Maps: Real Android AlarmManager, real device GPS + Haversine geofencing, real OpenStreetMap/Nominatim search, and real read-only Solana Devnet RPC calls (getSlot, getBalance, getLatestBlockhash).
+2. What Is Fake, Demo Data, or Simulated Right Now
+A. Fake Starter Balances ("Free Money")
+001_actake_schema.sql (lines 20–23), ActakeModels.kt, ProfileDto, UserProfileRepository: Every brand-new account starts with 30.0 ACT, $142.50 USDC, 500.0 SKR, and 150 act_points automatically.
+For production: Every new user must start at 0.0 balance until they deposit real tokens on-chain.
+B. Demo Data in Local Seeker Mode & UI Fallbacks
+LocalActakeStore.kt (lines 120–185): Auto-seeds a fake user profile (streak 1, 30 ACT, $150 USDC, 500 SKR, 10 locked), a fake "Morning Wakeup" 7-day stake with completedDays = 1, and a fake "7AM Campus Wake Club" squad pool.
+HomeScreen.kt (line 461): Falls back to hardcoded "7AM Campus Wake Club" when no squad is joined.
+MainActivity.kt (lines 810–825): Has a hardcoded fallback CelebrationReceipt (06:00 AM, 10.0 ACT + 2.00 bonus) if navigation hits ROUTE_CELEBRATION without a real receipt.
+C. Simulated Solana Wallet & Fake On-Chain Transactions (Biggest Gap)
+Not real Mobile Wallet Adapter (MWA 2.0): app/src/providers/SolanaWalletProvider.kt (SeedVaultMwaProtocolWallet) does not use the official Solana Mobile SDK (com.solanamobile:mobile-wallet-adapter-clientlib-ktx) to connect to Phantom, Solflare, or Seeker Seed Vault. Instead, SolanaSeekerWalletManager generates a local keypair in Android SharedPreferences and signs strings locally on the phone.
+No real transactions are sent to Solana: ActakeEscrowProgram.kt builds a plain text string ("versioned_tx:v0|program=ActkEscr0w111...|ix=fund_act...") and signs it locally. Nothing is serialized as a Solana binary transaction or broadcast to Solana RPC (sendTransaction). All balances only change inside Supabase/local storage.
+Placeholder Program ID & Token Mints (SolanaSeekerWalletManager.kt lines 307–311):
+ACTAKE_ESCROW_PROGRAM_ID = "ActkEscr0w111111111111111111111111111111111" (fake placeholder)
+SOLANA_ACT_TOKEN_MINT = "ACTk111111111111111111111111111111111111111" (fake placeholder)
+SOLANA_SKR_TOKEN_MINT = "SKR1111111111111111111111111111111111111111" (fake placeholder)
+SOLANA_USDC_DEVNET_MINT is Devnet USDC (Mainnet USDC is EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v).
+D. Client-Side AI Oracle Keypair (VisionOracleRepository.kt line 120)
+oracleKeyPair is generated randomly in memory on the user's phone on every launch.
+A smart contract cannot trust a signature created on the user's own device (someone could bypass the camera and sign their own proof). Verification & Ed25519 oracle signing must happen on a trusted backend server.
+E. Un-hosted Blinks URL & Local-Only Metadata
+Solana Blinks: SquadsScreen.kt shares https://actake.app/api/actions/join/{id}, which won't resolve until actake.app actually hosts a Solana Actions server + actions.json.
+Heatmap & Habit Metadata (CheckinHistoryStore, HabitMetadataStore): Stored only in device SharedPreferences, so they disappear if the user switches phones or reinstalls.
+3. What You Haven't Included Yet (Required for Production)
+Server-Side AI Oracle & Transaction Verifier (Supabase Edge Functions):
+Receive the captured proof photo on your server → call Gemini Vision server-side → sign (user_wallet, stake_pda, proof_hash, timestamp) with a secret ORACLE_PRIVATE_KEY stored only on the server.
+Verify real on-chain Solana transaction signatures via RPC before crediting/syncing Supabase balances (never trust client-reported deposits/withdrawals).
+Automated Deadline Settlement / Slashing Cron:
+Currently, a missed stake is only forfeited if the app is open when the alarm timer expires. If a user force-closes the app or turns off their phone, they never get slashed.
+You need a scheduled job (Supabase pg_cron + Edge Function or a keeper script) that checks expired deadlines and triggers on-chain slash_expired_stake so winners actually receive the losers' pot.
+Production Solana RPC Provider:
+Replace public https://api.devnet.solana.com (heavily rate-limited) with a dedicated RPC endpoint (e.g., Helius, QuickNode, or Triton) for Devnet testing and Mainnet launch.
+Account Deletion, Legal & Store Readiness:
+Hosted actake.app with Privacy Policy, Terms of Service, and Android App Links (/.well-known/assetlinks.json), plus an in-app Delete Account button (required by Google Play) and a release signing keystore.
+4. How to Build & Host Your Smart Contract on Solana
+Solana programs ("smart contracts") are written in Rust using the Anchor framework and deployed directly to the Solana blockchain (you don't host the contract on a web server — Solana validators host and execute it).
+Recommended v1 Design (Simpler & Safer)
+Instead of creating a custom ACT token that you have to peg 2:1 to USDC and manage reserves for, stake real SPL USDC directly (and optionally real SKR Token-2022) in your escrow vaults. That eliminates mint/burn liquidity risk.
+Core Anchor Program (actake_escrow) Structure
+Accounts / PDAs:
+ProtocolConfig PDA: stores admin, oracle_pubkey (your server's Ed25519 public key), treasury_wallet, fee_bps (e.g., 150 = 1.5%).
+Pool PDA + Vault Token Account (ATA): holds locked SPL tokens for solo or squad stakes.
+StakePosition PDA ([b"stake", pool, user]): stores principal, days_completed, total_days, deadline_ts, status.
+Instructions:
+initialize_config — one-time admin setup.
+lock_stake — transfers real USDC/SKR from the user's wallet into the Program's Vault ATA via SPL Token CPI.
+submit_verified_checkin — verifies the Solana Ed25519 SigVerify precompile instruction signed by ProtocolConfig.oracle_pubkey, then unlocks that day's pro-rata stake.
+slash_missed_stake — permissionless/keeper instruction callable only after Clock::get()?.unix_timestamp > deadline_ts, moving forfeited funds into the squad's slashed_pot (or treasury for solo stakes).
+claim_payout — transfers principal + pro-rata share of slashed_pot (minus protocol fee) from the Vault ATA back to the user's wallet.
+Deployment Steps (On Your Machine)
+Install toolchain: Rust (rustup), Solana CLI (agave-install), and Anchor CLI (avm install latest).
+Create & build program:
+Bash
+anchor init actake_escrow
+anchor build
+Deploy to Solana Devnet first (free):
+Bash
+solana config set --url devnet
+solana airdrop 4
+anchor deploy --provider.cluster devnet
+This outputs your real Program ID (e.g., 7xK9...), which replaces the fake ActkEscr0w111... string in Android.
+Wire Android to the Real Contract:
+Add the official Solana Mobile Wallet Adapter SDK (com.solanamobile:mobile-wallet-adapter-clientlib-ktx) and a Solana transaction serializer so Phantom / Solflare / Seeker Seed Vault sign and broadcast real binary VersionedTransactions to your deployed Program ID.
+Deploy to Solana Mainnet-Beta (only after Devnet end-to-end testing + security audit):
+Fund your deployer wallet with ~3–5 SOL (for program account rent) and run anchor deploy --provider.cluster mainnet.
+If you'd like, we can start cleaning this up right now in order:
+Strip all demo data & fake starter balances (0.0 starting balances, remove fake starter stakes/squads & UI fallbacks, move heatmap/habit metadata to Supabase).
+Scaffold the real Rust/Anchor actake_escrow smart contract + Supabase Edge Function oracle verifier in this repo so you can deploy it straight to Solana Devnet.
+Swap the simulated wallet signer for the real Solana Mobile Wallet Adapter (MWA 2.0) SDK.
+Which step would you like to tackle first?
+all
+image.png
+image.png
+Gemini 4 Neon
+Ran for 19m 58s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 31 files
+supabase/migrations/001_actake_schema.sql
+supabase/migrations/002_production_hardening.sql
+app/src/main/java/com/example/data/model/ActakeModels.kt
+app/src/main/java/com/example/data/repository/SupabaseDtoModels.kt
+app/src/main/java/com/example/data/repository/LocalActakeStore.kt
+app/src/main/java/com/example/ui/screens/HomeScreen.kt
+gradle/libs.versions.toml
+app/build.gradle.kts
+.env.example
+app/src/main/java/com/example/solana/SolanaConfig.kt
+app/src/main/java/com/example/solana/SolanaTransactionBuilder.kt
+app/src/providers/SolanaWalletProvider.kt
+app/src/main/java/com/example/solana/ActakeEscrowProgram.kt
+app/src/main/java/com/example/solana/SolanaSeekerWalletManager.kt
+app/src/main/java/com/example/MainActivity.kt
+app/src/main/java/com/example/data/repository/VisionOracleRepository.kt
+app/src/main/java/com/example/viewmodel/ActakeViewModel.kt
+solana/actake_escrow/Anchor.toml
+solana/actake_escrow/Cargo.toml
+solana/actake_escrow/programs/actake_escrow/Cargo.toml
+solana/actake_escrow/programs/actake_escrow/src/lib.rs
+solana/actake_escrow/package.json
+solana/actake_escrow/tests/actake_escrow.ts
+supabase/functions/verify-checkin/index.ts
+supabase/functions/settle-expired/index.ts
+README.md
+app/src/test/java/com/example/solana/SolanaTransactionBuilderTest.kt
+app/src/test/java/com/example/data/repository/UserProfileRepositoryTest.kt
+gradle.properties
+app/src/test/java/com/example/SolanaProtocolStackTest.kt
+app/src/test/java/com/example/ExampleRobolectricTest.kt
+Built
+All three production upgrades are complete, compiled, and verified against the full unit test suite:
+Demo Data & Fake Balances Removed: New accounts now start with 0.0 balances (ACT, USDC, SKR), 0 streak, and empty active stakes/squads across Android and Supabase SQL; fake squad counts, hardcoded bonus splits, fallback celebration receipts, and offline blockhashes have been removed.
+Real Solana Mobile Wallet Adapter 2.0 SDK Integrated: The app now uses the official mobile-wallet-adapter-clientlib-ktx:2.0.7 SDK with ActivityResultSender, real Sign-In With Solana (SIWS / EIP-4361) wallet sessions, and real binary Solana wire transactions (targeting your deployed Anchor contract or SPL Memo v2 until deployed) instead of local keypair simulation.
+Smart Contract, Edge Functions & Hackathon README Scaffolded: Added the Rust/Anchor 0.30.1 escrow contract (solana/actake_escrow/), Supabase Edge Functions (verify-checkin and settle-expired), migration supabase/migrations/002_production_hardening.sql, and a hackathon-ready README.md.
+Next steps on your end to go live:
+Supabase Database: Run supabase/migrations/002_production_hardening.sql in your Supabase SQL Editor.
+Deploy the Solana Contract: From solana/actake_escrow/, run anchor keys sync, anchor build, and anchor deploy --provider.cluster devnet, then paste the deployed Program ID into SOLANA_ESCROW_PROGRAM_ID in AI Studio Secrets (and in README.md).
+Deploy Edge Functions: Run supabase functions deploy verify-checkin and supabase functions deploy settle-expired after setting ORACLE_PRIVATE_KEY_HEX and CRON_SECRET in Supabase project secrets.
+All three production upgrades are complete, and both the Android build and the full 56-test unit suite pass:
+All demo data removed: Every new user now starts with 0.0 balances, 0 streak, and zero pre-seeded stakes, squads, or celebration bonuses across Android and Supabase.
+Real Solana Mobile Wallet Adapter 2.0 SDK integrated: Replaced the local keypair/string simulation with the official mobile-wallet-adapter-clientlib-ktx:2.0.7 SDK, real ActivityResultSender wiring, real SIWS signing, and binary Solana wire transactions (SolanaTransactionBuilder) that broadcast via installed Android wallets (Seeker Seed Vault, Phantom, Solflare).
+Smart contract, Edge Functions & hackathon README ready: Added the Anchor 0.30.1 escrow program (solana/actake_escrow/), Supabase Edge Functions (verify-checkin and settle-expired), production SQL migration (supabase/migrations/002_production_hardening.sql), and a full hackathon README.md.
+Final steps to run on your end
+Supabase database: Run supabase/migrations/002_production_hardening.sql in your Supabase SQL Editor.
+Deploy the Solana contract: From solana/actake_escrow/, run anchor keys sync && anchor build && anchor deploy --provider.cluster devnet, then paste the deployed Program ID into SOLANA_ESCROW_PROGRAM_ID in the AI Studio Secrets panel and into the Contract Addresses table in README.md.
+Deploy Edge Functions: Run supabase functions deploy verify-checkin and supabase functions deploy settle-expired after setting ORACLE_PRIVATE_KEY_HEX and CRON_SECRET in Supabase Secrets.
+Checkpoint
+How do I get all this Solana? Give me a detailed guide on how to go about getting all these Solana clusters, Solana RPC URL, Solana escrow program, Solana mints, and the rest. Give me a full detailed guide on how to go about that, all those secrets. How do I go about it?
+Gemini 4 Neon
+Ran for 45s
+
+Action history
+Here is a complete, step-by-step guide to getting every single Solana value and secret for Actake (tailored for Devnet first, which is free and accepted by the Dev3Pack Solana Mobile Hackathon).
+Quick Overview of Every Secret You Need
+In AI Studio → Secrets panel:
+Secret Name	What It Is	Example / Devnet Value
+SUPABASE_URL	Your Supabase project API URL	https://xxxx.supabase.co
+SUPABASE_ANON_KEY	Your Supabase publishable/anon key	eyJhbGci...
+GOOGLE_WEB_CLIENT_ID	Google OAuth Web Client ID	123456-xxxx.apps.googleusercontent.com
+SOLANA_CLUSTER	Target Solana network	solana:devnet
+SOLANA_RPC_URL	Solana JSON-RPC endpoint	https://api.devnet.solana.com (or Helius URL)
+SOLANA_USDC_MINT	Official Circle Devnet USDC mint	4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+SOLANA_ACT_MINT	Your SPL Token mint for $ACT	Created in Step 4
+SOLANA_SKR_MINT	Your Token-2022 mint for $SKR	Created in Step 4
+SOLANA_ESCROW_PROGRAM_ID	Your deployed Anchor escrow program ID	Created in Step 5
+In Supabase → Edge Function Secrets (never put these in Android):
+Secret Name	What It Is
+ORACLE_PRIVATE_KEY_HEX	64-byte Ed25519 signing key for verify-checkin
+CRON_SECRET	Random password protecting settle-expired cron
+Step 1: Get SOLANA_CLUSTER and SOLANA_RPC_URL
+SOLANA_CLUSTER:
+For testing & hackathon Devnet deployment, set this to:
+Text
+solana:devnet
+(When you later launch on Mainnet with real money, change it to solana:mainnet-beta.)
+SOLANA_RPC_URL:
+Quickest free option (no account needed):
+Text
+https://api.devnet.solana.com
+Recommended reliable free option (avoids public rate limits during demos):
+Go to helius.dev (or quicknode.com).
+Sign up for the free Developer plan.
+Copy your Solana Devnet RPC URL — it looks like:
+Text
+https://devnet.helius-rpc.com/?api-key=YOUR_API_KEY
+Paste that into SOLANA_RPC_URL in AI Studio Secrets.
+Step 2: Get SOLANA_USDC_MINT (Already Ready)
+You don't need to create USDC yourself — Circle maintains an official USDC mint on Solana:
+Devnet SOLANA_USDC_MINT:
+Text
+4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+(Mainnet SOLANA_USDC_MINT for later: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v)
+To get free Devnet USDC into your Phantom / Solflare / Seeker wallet for testing, go to faucet.circle.com, select Solana Devnet, paste your wallet address, and click Send 10 USDC.
+Step 3: Set Up a Devnet Deployer Wallet (Free Devnet SOL)
+Windows tip: Solana & Anchor CLI work best inside WSL2 (Ubuntu) on Windows. Open PowerShell as Admin and run wsl --install if you don't already have Ubuntu WSL, then run the commands below inside your Ubuntu terminal.
+Install Rust, Solana CLI, Anchor CLI, and SPL Token CLI (inside Ubuntu / macOS / Linux terminal):
+Bash
+# 1. Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+
+# 2. Install Solana CLI (Agave)
+sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+
+# 3. Install SPL Token CLI (to create ACT and SKR mints)
+cargo install spl-token-cli
+
+# 4. Install Anchor CLI 0.30.1 (to build & deploy actake_escrow)
+cargo install --git https://github.com/coral-xyz/anchor avm --force
+avm install 0.30.1
+avm use 0.30.1
+Point Solana CLI to Devnet and generate a deployer wallet:
+Bash
+solana config set --url https://api.devnet.solana.com
+solana-keygen new --outfile ~/.config/solana/id.json
+solana address
+Copy the wallet address printed by solana address.
+Get free Devnet SOL (needed to pay deployment rent ~2–3 SOL):
+Bash
+solana airdrop 2
+If the CLI airdrop is rate-limited, go to faucet.solana.com, paste your solana address, select Devnet, and claim 5 SOL. Verify with:
+Bash
+solana balance
+Step 4: Create SOLANA_ACT_MINT and SOLANA_SKR_MINT
+Create $ACT (Standard SPL Token, 6 decimals):
+Bash
+spl-token create-token --decimals 6
+It will output something like:
+Text
+Creating token <ACT_MINT_ADDRESS> under program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+Save <ACT_MINT_ADDRESS> → paste it into SOLANA_ACT_MINT in AI Studio Secrets.
+Create $SKR (Token-2022, 6 decimals — matches Actake's 0% fee Token-2022 perk):
+Bash
+spl-token create-token --program-2022 --decimals 6
+It will output:
+Text
+Creating token <SKR_MINT_ADDRESS> under program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
+Save <SKR_MINT_ADDRESS> → paste it into SOLANA_SKR_MINT in AI Studio Secrets.
+(Note: On Mainnet, if you want to use the official Solana Mobile Seeker $SKR mint instead of your own test mint, swap SOLANA_SKR_MINT to the official Mainnet SKR mint address at launch.)
+(Optional) Mint test $ACT and $SKR to your phone's Phantom / Solflare / Seeker wallet:
+Bash
+# Replace <YOUR_PHONE_WALLET> with your Phantom/Seeker Devnet address
+spl-token create-account <ACT_MINT_ADDRESS> --owner <YOUR_PHONE_WALLET> --fee-payer ~/.config/solana/id.json
+spl-token mint <ACT_MINT_ADDRESS> 1000 --recipient-owner <YOUR_PHONE_WALLET>
+
+spl-token create-account <SKR_MINT_ADDRESS> --program-2022 --owner <YOUR_PHONE_WALLET> --fee-payer ~/.config/solana/id.json
+spl-token mint <SKR_MINT_ADDRESS> 1000 --program-2022 --recipient-owner <YOUR_PHONE_WALLET>
+Step 5: Deploy actake_escrow to Get SOLANA_ESCROW_PROGRAM_ID
+You have two ways to deploy the smart contract from solana/actake_escrow/:
+Option A: Easiest (Zero Local Install — In Your Browser via Solana Playground)
+If you want to deploy in 3 minutes without installing Rust/Anchor locally:
+Go to beta.solpg.io.
+Click Create a new project → name it actake_escrow → choose Anchor (Rust).
+In the bottom-left corner, click "Not connected" to create a free Playground Devnet wallet, then run solana airdrop 5 in the Playground terminal (or fund that Playground address from faucet.solana.com).
+Open src/lib.rs in Playground and paste the entire contents of your project's solana/actake_escrow/programs/actake_escrow/src/lib.rs.
+Open Cargo.toml in Playground and make sure anchor-spl = "0.30.1" is under [dependencies].
+Click Build (hammer icon) on the left sidebar.
+Click Deploy (wrench icon → Deploy).
+Copy the Program ID displayed after deployment!
+Paste it into SOLANA_ESCROW_PROGRAM_ID in AI Studio Secrets.
+Paste it into the Contract Deployment Addresses table in README.md.
+You can immediately inspect it on https://explorer.solana.com/address/<YOUR_PROGRAM_ID>?cluster=devnet.
+Option B: Local CLI (After Exporting / Cloning Your GitHub Repo)
+From your terminal inside the project's solana/actake_escrow folder:
+Bash
+cd solana/actake_escrow
+
+# 1. Generate a real Program ID keypair and sync it into lib.rs and Anchor.toml
+anchor keys sync
+
+# 2. Compile the Rust smart contract into a Solana BPF binary
+anchor build
+
+# 3. Deploy to Solana Devnet
+anchor deploy --provider.cluster devnet
+At the end of anchor deploy, Solana prints:
+Text
+Program Id: <YOUR_DEPLOYED_PROGRAM_ID>
+Deploy success
+Paste <YOUR_DEPLOYED_PROGRAM_ID> into SOLANA_ESCROW_PROGRAM_ID in AI Studio Secrets and update README.md.
+Step 6: Generate Oracle & Cron Secrets + Deploy Supabase Edge Functions
+Your Android app calls Supabase, and your Supabase Edge Functions (verify-checkin and settle-expired) need two server-side secrets:
+Generate an Ed25519 Oracle keypair (run this one-liner with Node.js or in Ubuntu terminal):
+Bash
+node -e '
+  const crypto = require("crypto");
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+  const pubRaw = publicKey.export({ type: "spki", format: "der" }).subarray(-32);
+  const seedRaw = privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32);
+  const naclSecret64 = Buffer.concat([seedRaw, pubRaw]);
+  console.log("ORACLE_PRIVATE_KEY_HEX (keep secret in Supabase):", naclSecret64.toString("hex"));
+  console.log("ORACLE_PUBLIC_KEY_HEX  (pass to initialize_protocol):", pubRaw.toString("hex"));
+'
+(Save the Private Key Hex ONLY in Supabase Secrets — never put it in Android or GitHub.)
+Generate a random CRON_SECRET:
+Bash
+node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))'
+Set Supabase Secrets & Deploy the Edge Functions:
+Install the Supabase CLI (npm install -g supabase), log in, link your project, set the secrets, and deploy:
+Bash
+supabase login
+supabase link --project-ref <YOUR_SUPABASE_PROJECT_REF>
+
+supabase secrets set \
+  ORACLE_PRIVATE_KEY_HEX="<64_BYTE_HEX_FROM_STEP_1>" \
+  SOLANA_RPC_URL="https://api.devnet.solana.com" \
+  CRON_SECRET="<RANDOM_HEX_FROM_STEP_2>"
+
+supabase functions deploy verify-checkin
+supabase functions deploy settle-expired --no-verify-jwt
+(Your <YOUR_SUPABASE_PROJECT_REF> is the subdomain part of your SUPABASE_URL: https://<PROJECT_REF>.supabase.co.)
+Run the Database Migration:
+Open your Supabase Dashboard → SQL Editor → New Query.
+Paste and run supabase/migrations/002_production_hardening.sql.
+Step 7: Add All Keys to AI Studio Secrets & Test on Phone
+Open the Secrets panel in AI Studio and add/update:
+SUPABASE_URL
+SUPABASE_ANON_KEY
+GOOGLE_WEB_CLIENT_ID
+SOLANA_CLUSTER = solana:devnet
+SOLANA_RPC_URL = https://api.devnet.solana.com (or your Helius Devnet URL)
+SOLANA_USDC_MINT = 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+SOLANA_ACT_MINT = <your ACT mint from Step 4>
+SOLANA_SKR_MINT = <your SKR mint from Step 4>
+SOLANA_ESCROW_PROGRAM_ID = <your deployed Program ID from Step 5>
+Export/build your APK and install it on an Android phone that has Phantom or Solflare (or a Solana Seeker device).
+In Phantom/Solflare on your phone, go to Settings → Developer Settings → Enable Testnet Mode → Solana Devnet.
+Open Actake, tap Connect Solana Seeker (SIWS) — Phantom/Solflare will pop up natively via Mobile Wallet Adapter 2.0, sign you in, and every stake/check-in transaction will show up live on Solana Explorer (Devnet)!
+Design a screen with a form to define a new habit stake, including a description, target timestamp, and the amount of USDC to lock in the escrow program.
+Gemini 4 Neon
+Ran for 5m 40s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 7 files
+app/src/main/res/values/strings.xml
+app/src/main/java/com/example/viewmodel/ActakeViewModel.kt
+app/src/main/java/com/example/data/repository/LocalActakeStore.kt
+app/src/main/java/com/example/data/repository/ActakeRepository.kt
+app/src/main/java/com/example/ui/screens/CreateHabitStakeScreen.kt
+app/src/main/java/com/example/MainActivity.kt
+app/src/test/java/com/example/ui/screens/CreateHabitStakeValidatorTest.kt
+Built
+Running the habit stake form validation tests.
+I have added a dedicated New Habit Stake screen for defining a habit commitment and locking USDC in the Solana escrow program. It includes habit category chips, a title and multi-line description field with validation, interactive date/time pickers with quick presets and a live Unix deadline timestamp preview, a USDC amount input with quick presets and slider, and an on-chain escrow summary card. Tapping + New Stake (or any create-habit button) now opens this screen and submits the USDC lock directly through Mobile Wallet Adapter.
+I added the dedicated New Habit Stake screen (CreateHabitStakeScreen) with form fields for habit title and commitment description, an interactive target date/time picker with live Unix i64 deadline preview and future-time validation, and a USDC escrow amount selector with quick presets, slider, and live Solana escrow program details. Tapping + New Stake on the Home screen (or create buttons in History and Settings) now opens this screen and locks the USDC stake through ActakeViewModel and the Solana Mobile Wallet Adapter escrow flow. Both the Android build and the new form validation unit tests pass.
+Checkpoint
+There was an unexpected error. Finish what you were doing.
+Gemini 4 Neon
+Ran for 58s
+Built
+Verifying the full unit test suite across the app.
+Everything is finished and verified—both the Android build and the full unit test suite pass cleanly. The new New Habit Stake screen (with habit title and description, target date/time picker with live Unix timestamp preview, USDC escrow amount selector, and on-chain escrow summary) is wired into navigation and ready to use.
+Everything is complete and verified. The new New Habit Stake screen (with habit title and description, interactive date/time target timestamp picker with Unix deadline preview, USDC escrow amount selector, and live Solana escrow summary) is wired into the app's navigation and Mobile Wallet Adapter escrow flow, and both the Android build and full unit test suite pass cleanly.
+Checkpoint
+Fix the errors in the app
+Gemini 4 Neon
+Ran for 2m 8s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 3 files
+app/src/providers/SolanaWalletProvider.kt
+app/src/main/java/com/example/ui/screens/OnboardingScreen.kt
+app/src/main/java/com/example/MainActivity.kt
+Built
+I fixed the missing-wallet error handling so tapping Connect Solana Seeker (SIWS) on a device or emulator without Phantom, Solflare, or Seed Vault installed no longer logs an error stacktrace. Instead, the onboarding screen now shows an inline guidance card with Install Phantom and Explore App buttons (plus an Explore without a wallet first option), allowing you to browse the app and test screens like New Habit Stake without getting stuck on onboarding.
+Checkpoint
+Fix the errors in the app
+Gemini 4 Neon
+Ran for 1m 29s
+
+Action history
+Here are key actions taken for the app:
+
+Edited 2 files
+app/src/main/java/com/example/viewmodel/ActakeViewModel.kt
+app/src/providers/SolanaWalletProvider.kt
+Built
+I hardened the missing-wallet handling across SolanaWalletProvider and ActakeViewModel so the app checks whether an MWA wallet (Phantom, Solflare, or Seeker) is installed before launching a wallet session, catches missing-wallet errors cleanly when locking stakes or funding/withdrawing, and avoids logging Log.e stacktraces on emulators. Once the preview refreshes with the new build, tap Explore without a wallet first (or Explore App on the inline banner) on the onboarding screen to browse the app without an installed Solana wallet.
+Checkpoint
+Suggestions
