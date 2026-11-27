@@ -177,13 +177,13 @@ const AnimatedAccountabilityReel: React.FC<{ compact?: boolean }> = ({ compact =
   return (
     <div
       className={`relative w-full h-full flex items-center justify-center ${
-        compact ? 'pb-48 pt-16 px-6' : 'pb-40 pt-16 px-8'
+        compact ? 'pb-48 pt-16 px-6' : 'pb-36 pt-14 px-6'
       }`}
     >
       <div className="relative flex flex-col items-center">
         <div
           className={`relative flex items-center justify-center ${
-            compact ? 'w-44 h-44' : 'w-56 h-56 xl:w-64 xl:h-64'
+            compact ? 'w-44 h-44' : 'w-48 h-48 lg:w-52 lg:h-52'
           }`}
         >
           <svg
@@ -212,14 +212,14 @@ const AnimatedAccountabilityReel: React.FC<{ compact?: boolean }> = ({ compact =
 
           <div
             className={`relative overflow-hidden rounded-3xl bg-[#0D0E14]/85 backdrop-blur-md border border-white/15 flex flex-col items-center justify-center text-center shadow-[0_20px_50px_rgba(0,0,0,0.55)] ${
-              compact ? 'w-32 h-32 p-3' : 'w-40 h-40 xl:w-44 xl:h-44 p-5'
+              compact ? 'w-32 h-32 p-3' : 'w-36 h-36 lg:w-40 lg:h-40 p-4'
             }`}
           >
             <span
               aria-hidden="true"
               className="actake-scan-beam pointer-events-none absolute inset-x-3 h-[2px] bg-gradient-to-r from-transparent via-[#F16A2E] to-transparent"
             />
-            <span className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center mb-2.5">
+            <span className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center mb-2">
               <ActiveIcon className={`w-5 h-5 ${active.accent}`} />
             </span>
             <div className="font-mono text-sm font-bold text-white tabular-nums">
@@ -229,15 +229,15 @@ const AnimatedAccountabilityReel: React.FC<{ compact?: boolean }> = ({ compact =
           </div>
         </div>
 
-        <div className="mt-6 flex items-center gap-2">
+        <div className="mt-5 flex items-center gap-1.5">
           {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, idx) => {
             const lit = idx <= phase + 4;
             return (
               <span
                 key={`${day}-${idx}`}
-                className={`w-8 h-8 rounded-full text-[11px] font-mono font-bold flex items-center justify-center transition-all duration-300 ${
+                className={`w-7 h-7 rounded-full text-[10.5px] font-mono font-bold flex items-center justify-center transition-all duration-300 ${
                   lit
-                    ? 'bg-[#F16A2E] text-white shadow-[0_0_18px_rgba(241,106,46,0.55)]'
+                    ? 'bg-[#F16A2E] text-white shadow-[0_0_16px_rgba(241,106,46,0.55)]'
                     : 'bg-white/10 text-white/50 border border-white/10'
                 }`}
               >
@@ -264,7 +264,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const [guideExpanded, setGuideExpanded] = useState(false);
   const [mobileGuideOpen, setMobileGuideOpen] = useState(false);
 
-  // Synced auto-advancing slideshow shared across Desktop & Mobile
+  // Synced auto-advancing slideshow shared across Desktop Pop-up & Mobile Full-Screen
   useEffect(() => {
     if (paused) return;
     const timer = window.setInterval(() => {
@@ -314,231 +314,284 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Sign in to Actake"
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#090A0E] text-white"
-    >
+    <div role="dialog" aria-modal="true" aria-label="Sign in to Actake">
       {/* =====================================================================
           MOBILE VIEWPORT (< md): Full-Bleed Cinematic Editorial Auth Screen
       ===================================================================== */}
-      <div className="md:hidden relative min-h-[100dvh] w-full flex flex-col justify-between overflow-hidden bg-[#090A0E]">
-        {/* Synced Full-Bleed Slideshow Backdrop */}
-        <div className="absolute inset-0 z-0 overflow-hidden">
-          {AUTH_SLIDES.map((slide, idx) => {
-            const active = idx === slideIndex;
-            return (
-              <div
-                key={slide.id}
-                aria-hidden={!active}
-                className={`absolute inset-0 transition-opacity duration-700 ${
-                  active ? 'opacity-100' : 'opacity-0 pointer-events-none'
-                }`}
-              >
-                <img
-                  key={`${slide.id}-${active ? 'on' : 'off'}`}
-                  src={slide.imageSrc}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  className={`w-full h-full object-cover object-center ${
-                    slide.kind === 'motion'
-                      ? 'scale-105 blur-[3px] opacity-40'
-                      : active
-                        ? 'actake-ken-burns'
-                        : ''
-                  }`}
-                />
-                {slide.kind === 'motion' && active && <AnimatedAccountabilityReel compact />}
-              </div>
-            );
-          })}
-
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 bg-gradient-to-b from-[#090A0E]/65 via-[#090A0E]/30 to-[#090A0E]"
-          />
-          <div
-            aria-hidden="true"
-            className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-[#090A0E] via-[#090A0E]/92 to-transparent"
-          />
-        </div>
-
-        {/* Mobile Top Bar + Synced Slideshow Progress Indicators */}
-        <div className="relative z-20 px-4 pt-4 space-y-3">
-          <div
-            className="grid grid-cols-4 gap-1.5"
-            role="tablist"
-            aria-label="Accountability showcase slides"
-          >
+      <div className="md:hidden fixed inset-0 z-50 overflow-y-auto bg-[#090A0E] text-white">
+        <div className="relative min-h-[100dvh] w-full flex flex-col justify-between overflow-hidden bg-[#090A0E]">
+          {/* Synced Full-Bleed Slideshow Backdrop */}
+          <div className="absolute inset-0 z-0 overflow-hidden">
             {AUTH_SLIDES.map((slide, idx) => {
-              const isCurrent = idx === slideIndex;
-              const isPast = idx < slideIndex;
+              const active = idx === slideIndex;
               return (
-                <button
+                <div
                   key={slide.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={isCurrent}
-                  aria-label={`Slide ${idx + 1}: ${slide.chapter}`}
-                  onClick={() => setSlideIndex(idx)}
-                  className="h-6 flex items-center cursor-pointer"
+                  aria-hidden={!active}
+                  className={`absolute inset-0 transition-opacity duration-700 ${
+                    active ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                  }`}
                 >
-                  <span className="h-[3px] w-full rounded-full bg-white/25 overflow-hidden block">
-                    <span
-                      key={isCurrent ? `m-prog-${slideIndex}-${paused}` : `m-static-${idx}`}
-                      className={`block h-full w-full rounded-full bg-white ${
-                        isCurrent && !paused
-                          ? 'actake-slide-progress-fill'
-                          : isPast || isCurrent
-                            ? 'scale-x-100'
-                            : 'scale-x-0'
-                      }`}
-                    />
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={onBack}
-              disabled={connecting}
-              className="min-h-[40px] px-3.5 py-1.5 rounded-full bg-black/45 backdrop-blur-md border border-white/15 text-xs font-semibold text-white inline-flex items-center gap-1.5 whitespace-nowrap"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 text-[#F16A2E]" />
-              <span>Back</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setPaused((p) => !p)}
-              aria-label={paused ? 'Play slideshow' : 'Pause slideshow'}
-              className="min-h-[40px] px-3 py-1.5 rounded-full bg-black/45 backdrop-blur-md border border-white/15 text-[11px] font-medium text-white/85 inline-flex items-center gap-1.5 whitespace-nowrap"
-            >
-              {paused ? (
-                <Play className="w-3 h-3 text-[#F16A2E]" />
-              ) : (
-                <Pause className="w-3 h-3 text-[#F16A2E]" />
-              )}
-              <span>{currentSlide.chapter}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Mobile Lower Content: Brand Mark, Quote & Stacked Sign-In Pills */}
-        <div className="relative z-20 px-5 pb-7 pt-24 space-y-5">
-          <div className="text-center space-y-2.5 max-w-sm mx-auto">
-            <div className="flex justify-center">
-              <BrandMark inverted size="lg" />
-            </div>
-            <p className="text-sm font-medium text-white/90 leading-snug text-balance">
-              &ldquo;{currentSlide.quote}&rdquo;
-            </p>
-            <div className="text-[11px] font-mono text-white/55">{currentSlide.attribution}</div>
-          </div>
-
-          {error && (
-            <div
-              role="alert"
-              className="rounded-2xl bg-red-950/85 border border-red-500/40 px-4 py-3 flex items-start gap-2.5 text-xs text-red-200 max-w-md mx-auto"
-            >
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-              <span className="leading-relaxed">{error}</span>
-            </div>
-          )}
-
-          <div className="space-y-2.5 max-w-md mx-auto w-full">
-            {primaryWallet && (
-              <button
-                type="button"
-                disabled={connecting || !primaryWallet.available}
-                onClick={() => onConnect(primaryWallet.id)}
-                className="w-full min-h-[54px] px-5 py-3 rounded-full bg-white hover:bg-[#FFF5EE] active:scale-[0.99] disabled:opacity-60 text-[#111114] text-sm font-bold shadow-[0_14px_34px_rgba(0,0,0,0.45)] flex items-center justify-center gap-3 transition-all cursor-pointer"
-              >
-                {connecting ? (
-                  <Loader2 className="w-5 h-5 animate-spin text-[#F16A2E] shrink-0" />
-                ) : primaryWallet.kind === 'pollar' ? (
                   <img
-                    src={POLLAR_LOGO_SRC}
+                    key={`${slide.id}-${active ? 'on' : 'off'}`}
+                    src={slide.imageSrc}
                     alt=""
                     referrerPolicy="no-referrer"
-                    className="w-6 h-6 rounded-md object-contain bg-[#0C1324] p-0.5 shrink-0"
+                    className={`w-full h-full object-cover object-center ${
+                      slide.kind === 'motion'
+                        ? 'scale-105 blur-[3px] opacity-40'
+                        : active
+                          ? 'actake-ken-burns'
+                          : ''
+                    }`}
                   />
-                ) : (
-                  <WalletBrandIcon option={primaryWallet} size="sm" theme="light" />
-                )}
-                <span className="truncate">
-                  {connecting ? 'Connecting...' : formatShortWalletLabel(primaryWallet)}
-                </span>
-              </button>
-            )}
+                  {slide.kind === 'motion' && active && <AnimatedAccountabilityReel compact />}
+                </div>
+              );
+            })}
 
-            {secondaryWallets.map((w) => (
-              <button
-                key={w.id}
-                type="button"
-                disabled={connecting || !w.available}
-                onClick={() => onConnect(w.id)}
-                className={`w-full min-h-[52px] px-5 py-3 rounded-full backdrop-blur-md border text-sm font-semibold flex items-center justify-center gap-3 transition-all ${
-                  !w.available
-                    ? 'bg-white/[0.04] border-white/10 text-white/40 cursor-not-allowed'
-                    : 'bg-white/[0.11] hover:bg-white/[0.18] active:scale-[0.99] border-white/18 text-white cursor-pointer'
-                }`}
-              >
-                <WalletBrandIcon option={w} size="sm" theme="dark" />
-                <span className="truncate">{formatShortWalletLabel(w)}</span>
-                {!w.available && (
-                  <span className="text-[10px] font-mono text-white/45 shrink-0">
-                    (Android Chrome)
-                  </span>
-                )}
-              </button>
-            ))}
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 bg-gradient-to-b from-[#090A0E]/65 via-[#090A0E]/30 to-[#090A0E]"
+            />
+            <div
+              aria-hidden="true"
+              className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-[#090A0E] via-[#090A0E]/92 to-transparent"
+            />
           </div>
 
-          <div className="max-w-md mx-auto w-full space-y-2.5">
-            <button
-              type="button"
-              aria-expanded={mobileGuideOpen}
-              onClick={() => setMobileGuideOpen((prev) => !prev)}
-              className="w-full min-h-[42px] px-4 py-2 rounded-2xl bg-white/[0.06] border border-white/10 text-xs font-semibold text-white/85 flex items-center justify-between gap-2"
+          {/* Mobile Top Bar + Synced Slideshow Progress Indicators */}
+          <div className="relative z-20 px-4 pt-4 space-y-3">
+            <div
+              className="grid grid-cols-4 gap-1.5"
+              role="tablist"
+              aria-label="Accountability showcase slides"
             >
-              <span className="inline-flex items-center gap-1.5">
-                <HelpCircle className="w-3.5 h-3.5 text-[#F16A2E]" />
-                <span>Which option is best &amp; how to navigate</span>
-              </span>
-              <ChevronDown
-                className={`w-4 h-4 text-white/60 transition-transform duration-200 ${
-                  mobileGuideOpen ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
+              {AUTH_SLIDES.map((slide, idx) => {
+                const isCurrent = idx === slideIndex;
+                const isPast = idx < slideIndex;
+                return (
+                  <button
+                    key={slide.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isCurrent}
+                    aria-label={`Slide ${idx + 1}: ${slide.chapter}`}
+                    onClick={() => setSlideIndex(idx)}
+                    className="h-6 flex items-center cursor-pointer"
+                  >
+                    <span className="h-[3px] w-full rounded-full bg-white/25 overflow-hidden block">
+                      <span
+                        key={isCurrent ? `m-prog-${slideIndex}-${paused}` : `m-static-${idx}`}
+                        className={`block h-full w-full rounded-full bg-white ${
+                          isCurrent && !paused
+                            ? 'actake-slide-progress-fill'
+                            : isPast || isCurrent
+                              ? 'scale-x-100'
+                              : 'scale-x-0'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
 
-            {mobileGuideOpen && (
-              <div className="rounded-2xl bg-[#111218]/95 border border-white/12 p-4 space-y-3 text-left">
-                <div className="space-y-2.5 divide-y divide-white/10">
-                  {OPTION_COMPARISON.map((row) => (
-                    <div key={row.id} className="pt-2.5 first:pt-0 space-y-0.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-white">{row.title}</span>
-                        <span className="text-[11px] font-semibold text-[#F16A2E]">{row.tag}</span>
-                      </div>
-                      <p className="text-[11.5px] text-white/65 leading-relaxed">{row.detail}</p>
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={onBack}
+                disabled={connecting}
+                className="min-h-[40px] px-3.5 py-1.5 rounded-full bg-black/45 backdrop-blur-md border border-white/15 text-xs font-semibold text-white inline-flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-[#F16A2E]" />
+                <span>Back</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPaused((p) => !p)}
+                aria-label={paused ? 'Play slideshow' : 'Pause slideshow'}
+                className="min-h-[40px] px-3 py-1.5 rounded-full bg-black/45 backdrop-blur-md border border-white/15 text-[11px] font-medium text-white/85 inline-flex items-center gap-1.5 whitespace-nowrap"
+              >
+                {paused ? (
+                  <Play className="w-3 h-3 text-[#F16A2E]" />
+                ) : (
+                  <Pause className="w-3 h-3 text-[#F16A2E]" />
+                )}
+                <span>{currentSlide.chapter}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Mobile Lower Content: Brand Mark, Quote & Stacked Sign-In Pills */}
+          <div className="relative z-20 px-5 pb-7 pt-24 space-y-5">
+            <div className="text-center space-y-2.5 max-w-sm mx-auto">
+              <div className="flex justify-center">
+                <BrandMark inverted size="lg" />
+              </div>
+              <p className="text-sm font-medium text-white/90 leading-snug text-balance">
+                &ldquo;{currentSlide.quote}&rdquo;
+              </p>
+              <div className="text-[11px] font-mono text-white/55">{currentSlide.attribution}</div>
+            </div>
+
+            {/* Collapsible Best-Option & Step-by-Step Navigation Guide (Above Sign-In Buttons, Closed by Default) */}
+            <div className="max-w-md mx-auto w-full space-y-2.5">
+              <button
+                type="button"
+                aria-expanded={mobileGuideOpen}
+                onClick={() => setMobileGuideOpen((prev) => !prev)}
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-white/[0.07] hover:bg-white/[0.11] border border-white/12 text-xs font-semibold text-white/90 flex items-center justify-between gap-2 backdrop-blur-md transition-colors cursor-pointer"
+              >
+                <span className="inline-flex items-center gap-1.5 min-w-0">
+                  <HelpCircle className="w-3.5 h-3.5 text-[#F16A2E] shrink-0" />
+                  <span className="truncate">Which option is best &amp; how to navigate</span>
+                </span>
+                <ChevronDown
+                  className={`w-4 h-4 text-white/60 shrink-0 transition-transform duration-200 ${
+                    mobileGuideOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {mobileGuideOpen && (
+                <div className="rounded-2xl bg-[#111218]/95 border border-white/12 p-4 space-y-3.5 text-left backdrop-blur-md">
+                  <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-black/40 border border-white/8">
+                    <button
+                      type="button"
+                      onClick={() => setInfoTab('best')}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                        infoTab === 'best'
+                          ? 'bg-white/14 text-white'
+                          : 'text-white/55 hover:text-white'
+                      }`}
+                    >
+                      Which option is best?
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInfoTab('navigate')}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                        infoTab === 'navigate'
+                          ? 'bg-white/14 text-white'
+                          : 'text-white/55 hover:text-white'
+                      }`}
+                    >
+                      How to navigate
+                    </button>
+                  </div>
+
+                  {infoTab === 'best' ? (
+                    <div className="space-y-2.5 divide-y divide-white/10">
+                      {OPTION_COMPARISON.map((row) => (
+                        <div key={row.id} className="pt-2.5 first:pt-0 space-y-0.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-white">{row.title}</span>
+                            <span className="text-[11px] font-semibold text-[#F16A2E]">
+                              {row.tag}
+                            </span>
+                          </div>
+                          <p className="text-[11.5px] text-white/65 leading-relaxed">{row.detail}</p>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    <div className="space-y-2">
+                      {NAVIGATION_STEPS.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <div
+                            key={item.step}
+                            className="rounded-xl bg-black/35 border border-white/8 p-3 flex items-start gap-2.5"
+                          >
+                            <Icon className="w-3.5 h-3.5 text-[#F16A2E] shrink-0 mt-0.5" />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-bold text-white">{item.title}</span>
+                                <span className="font-mono text-[10px] font-bold text-white/40 tabular-nums">
+                                  {item.step}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-white/65 mt-0.5 leading-relaxed">
+                                {item.detail}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="pt-2.5 border-t border-white/10 flex items-start gap-2 text-[11px] text-white/65">
+                    <Fuel className="w-3.5 h-3.5 text-[#4ADE80] shrink-0 mt-0.5" />
+                    <span>
+                      Keep a small Devnet SOL balance for gas or fund directly through Pollar RAMP
+                      after signing in.
+                    </span>
+                  </div>
                 </div>
-                <div className="pt-2.5 border-t border-white/10 flex items-start gap-2 text-[11px] text-white/65">
-                  <Fuel className="w-3.5 h-3.5 text-[#4ADE80] shrink-0 mt-0.5" />
-                  <span>
-                    Keep a small Devnet SOL balance for gas or fund directly through Pollar RAMP
-                    after signing in.
-                  </span>
-                </div>
+              )}
+            </div>
+
+            {error && (
+              <div
+                role="alert"
+                className="rounded-2xl bg-red-950/85 border border-red-500/40 px-4 py-3 flex items-start gap-2.5 text-xs text-red-200 max-w-md mx-auto"
+              >
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{error}</span>
               </div>
             )}
+
+            <div className="space-y-2.5 max-w-md mx-auto w-full">
+              {primaryWallet && (
+                <button
+                  type="button"
+                  disabled={connecting || !primaryWallet.available}
+                  onClick={() => onConnect(primaryWallet.id)}
+                  className="w-full min-h-[54px] px-5 py-3 rounded-full bg-white hover:bg-[#FFF5EE] active:scale-[0.99] disabled:opacity-60 text-[#111114] text-sm font-bold shadow-[0_14px_34px_rgba(0,0,0,0.45)] flex items-center justify-center gap-3 transition-all cursor-pointer"
+                >
+                  {connecting ? (
+                    <Loader2 className="w-5 h-5 animate-spin text-[#F16A2E] shrink-0" />
+                  ) : primaryWallet.kind === 'pollar' ? (
+                    <img
+                      src={POLLAR_LOGO_SRC}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="w-6 h-6 rounded-md object-contain bg-[#0C1324] p-0.5 shrink-0"
+                    />
+                  ) : (
+                    <WalletBrandIcon option={primaryWallet} size="sm" theme="light" />
+                  )}
+                  <span className="truncate">
+                    {connecting ? 'Connecting...' : formatShortWalletLabel(primaryWallet)}
+                  </span>
+                </button>
+              )}
+
+              {secondaryWallets.map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  disabled={connecting || !w.available}
+                  onClick={() => onConnect(w.id)}
+                  className={`w-full min-h-[52px] px-5 py-3 rounded-full backdrop-blur-md border text-sm font-semibold flex items-center justify-center gap-3 transition-all ${
+                    !w.available
+                      ? 'bg-white/[0.04] border-white/10 text-white/40 cursor-not-allowed'
+                      : 'bg-white/[0.11] hover:bg-white/[0.18] active:scale-[0.99] border-white/18 text-white cursor-pointer'
+                  }`}
+                >
+                  <WalletBrandIcon option={w} size="sm" theme="dark" />
+                  <span className="truncate">{formatShortWalletLabel(w)}</span>
+                  {!w.available && (
+                    <span className="text-[10px] font-mono text-white/45 shrink-0">
+                      (Android Chrome)
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
 
             <p className="text-center text-[11px] text-white/45 leading-relaxed pt-1">
               Non-custodial escrow · Switch wallets anytime
@@ -550,10 +603,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       {/* =====================================================================
           TABLET, DESKTOP & LARGE SCREENS (>= md):
           Full-Screen Edge-to-Edge Spacious Row Layout (justify-between)
-          Clean standard SaaS header & footer, zero clutter, generous separation
       ===================================================================== */}
-      <div className="hidden md:flex flex-col justify-between min-h-screen w-full actake-auth-glow-stage">
-        {/* Standard Full-Width Top Navigation Bar */}
+      <div className="hidden md:flex fixed inset-0 z-50 overflow-y-auto flex-col justify-between min-h-screen w-full text-white actake-auth-glow-stage">
+        {/* Clean Full-Width Standard Top Bar */}
         <header className="w-full px-6 md:px-10 lg:px-14 xl:px-20 h-20 flex items-center justify-between gap-6 border-b border-white/[0.07] bg-[#0B0C10]/75 backdrop-blur-md shrink-0">
           <button
             type="button"
@@ -591,387 +643,381 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
         {/* Full-Screen Spacious Two-Column Row with Generous Space Between */}
         <main className="flex-1 w-full px-6 md:px-10 lg:px-14 xl:px-20 py-8 lg:py-12 flex flex-row items-stretch justify-between gap-8 lg:gap-14 xl:gap-20">
-          {/* LEFT COLUMN: Full-Height Consistency & Accountability Slideshow */}
+          {/* LEFT COLUMN: Full-Height Synced 4-Slide Consistency & Accountability Showcase */}
           <section
             aria-label="Accountability showcase"
-            className="w-[45%] lg:w-[46%] xl:w-[45%] flex flex-col shrink-0"
+            className="w-[45%] lg:w-[46%] xl:w-[45%] shrink-0 flex flex-col"
           >
             <div className="relative flex-1 min-h-[540px] lg:min-h-[600px] rounded-[28px] overflow-hidden bg-[#12131A] border border-white/12 shadow-[0_28px_80px_rgba(0,0,0,0.58)] flex flex-col justify-between">
-              {/* Synced 4-Slide Visual Canvas */}
-              <div className="absolute inset-0 z-0 overflow-hidden">
-                {AUTH_SLIDES.map((slide, idx) => {
-                  const active = idx === slideIndex;
-                  return (
-                    <div
-                      key={slide.id}
-                      aria-hidden={!active}
-                      className={`absolute inset-0 transition-opacity duration-700 ${
-                        active ? 'opacity-100' : 'opacity-0 pointer-events-none'
-                      }`}
-                    >
-                      <img
-                        key={`${slide.id}-${active ? 'desk-on' : 'desk-off'}`}
-                        src={slide.imageSrc}
-                        alt={slide.chapter}
-                        referrerPolicy="no-referrer"
-                        className={`w-full h-full object-cover object-center ${
-                          slide.kind === 'motion'
-                            ? 'scale-105 blur-[4px] opacity-35'
-                            : active
-                              ? 'actake-ken-burns'
-                              : ''
-                        }`}
-                      />
-                      {slide.kind === 'motion' && active && <AnimatedAccountabilityReel />}
-                    </div>
-                  );
-                })}
-
-                <div
-                  aria-hidden="true"
-                  className="absolute inset-0 bg-gradient-to-t from-[#09090D] via-[#09090D]/30 to-[#09090D]/40"
-                />
-              </div>
-
-              {/* Subtle Top Row inside Showcase */}
-              <div className="relative z-10 px-6 pt-6 lg:px-8 lg:pt-8 flex items-center justify-between gap-3">
-                <span className="text-xs font-mono font-semibold text-white/80 tracking-wide">
-                  {currentSlide.chapter}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() => setPaused((p) => !p)}
-                  aria-label={paused ? 'Resume showcase slideshow' : 'Pause showcase slideshow'}
-                  className="min-h-[34px] px-3.5 py-1.5 rounded-full bg-black/45 hover:bg-black/65 backdrop-blur-md border border-white/15 text-xs font-semibold text-white/90 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  {paused ? (
-                    <>
-                      <Play className="w-3 h-3 text-[#F16A2E]" />
-                      <span>Play</span>
-                    </>
-                  ) : (
-                    <>
-                      <Pause className="w-3 h-3 text-[#F16A2E]" />
-                      <span>Pause</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Bottom Editorial Quote + 4 Interactive Progress Bars */}
-              <div className="relative z-10 px-6 pb-6 lg:px-9 lg:pb-9 space-y-6">
-                <div className="space-y-3 max-w-xl">
-                  <blockquote className="font-display text-xl lg:text-2xl xl:text-[30px] font-bold text-white leading-[1.24] tracking-tight text-balance">
-                    &ldquo;{currentSlide.quote}&rdquo;
-                  </blockquote>
-                  <div className="text-xs lg:text-sm font-mono text-white/65">
-                    {currentSlide.attribution}
-                  </div>
-                </div>
-
-                <div
-                  className="grid grid-cols-4 gap-3"
-                  role="tablist"
-                  aria-label="Accountability slideshow navigation"
-                >
-                  {AUTH_SLIDES.map((slide, idx) => {
-                    const isCurrent = idx === slideIndex;
-                    const isPast = idx < slideIndex;
-                    return (
-                      <button
-                        key={slide.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={isCurrent}
-                        aria-label={`View ${slide.chapter}`}
-                        onClick={() => setSlideIndex(idx)}
-                        className="group py-2 text-left cursor-pointer"
-                      >
-                        <span className="block h-[3px] w-full rounded-full bg-white/20 overflow-hidden">
-                          <span
-                            key={isCurrent ? `d-prog-${slideIndex}-${paused}` : `d-static-${idx}`}
-                            className={`block h-full w-full rounded-full ${
-                              isCurrent ? 'bg-[#F16A2E]' : 'bg-white/75'
-                            } ${
-                              isCurrent && !paused
-                                ? 'actake-slide-progress-fill'
-                                : isPast || isCurrent
-                                  ? 'scale-x-100'
-                                  : 'scale-x-0'
+                  {/* Synced Visual Canvas */}
+                  <div className="absolute inset-0 z-0 overflow-hidden">
+                    {AUTH_SLIDES.map((slide, idx) => {
+                      const active = idx === slideIndex;
+                      return (
+                        <div
+                          key={slide.id}
+                          aria-hidden={!active}
+                          className={`absolute inset-0 transition-opacity duration-700 ${
+                            active ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                          }`}
+                        >
+                          <img
+                            key={`${slide.id}-${active ? 'desk-on' : 'desk-off'}`}
+                            src={slide.imageSrc}
+                            alt={slide.chapter}
+                            referrerPolicy="no-referrer"
+                            className={`w-full h-full object-cover object-center ${
+                              slide.kind === 'motion'
+                                ? 'scale-105 blur-[4px] opacity-35'
+                                : active
+                                  ? 'actake-ken-burns'
+                                  : ''
                             }`}
                           />
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+                          {slide.kind === 'motion' && active && <AnimatedAccountabilityReel />}
+                        </div>
+                      );
+                    })}
+
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-0 bg-gradient-to-t from-[#09090D] via-[#09090D]/32 to-[#09090D]/42"
+                    />
+                  </div>
+
+                  {/* Top Slide Caption & Pause Control */}
+                  <div className="relative z-10 px-5 pt-5 flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-mono font-semibold text-white/80 truncate">
+                      {currentSlide.chapter}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaused((p) => !p)}
+                      aria-label={paused ? 'Resume showcase slideshow' : 'Pause showcase slideshow'}
+                      className="min-h-[30px] px-3 py-1 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur-md border border-white/15 text-[11px] font-semibold text-white/90 inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                    >
+                      {paused ? (
+                        <>
+                          <Play className="w-3 h-3 text-[#F16A2E]" />
+                          <span>Play</span>
+                        </>
+                      ) : (
+                        <>
+                          <Pause className="w-3 h-3 text-[#F16A2E]" />
+                          <span>Pause</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Bottom Quote + 4 Interactive Progress Bars */}
+                  <div className="relative z-10 px-5 pb-5 space-y-4">
+                    <div className="space-y-2">
+                      <blockquote className="font-display text-lg lg:text-xl font-bold text-white leading-[1.28] tracking-tight text-balance">
+                        &ldquo;{currentSlide.quote}&rdquo;
+                      </blockquote>
+                      <div className="text-[11.5px] font-mono text-white/65">
+                        {currentSlide.attribution}
+                      </div>
+                    </div>
+
+                    <div
+                      className="grid grid-cols-4 gap-2"
+                      role="tablist"
+                      aria-label="Accountability slideshow navigation"
+                    >
+                      {AUTH_SLIDES.map((slide, idx) => {
+                        const isCurrent = idx === slideIndex;
+                        const isPast = idx < slideIndex;
+                        return (
+                          <button
+                            key={slide.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={isCurrent}
+                            aria-label={`View ${slide.chapter}`}
+                            onClick={() => setSlideIndex(idx)}
+                            className="py-1.5 text-left cursor-pointer"
+                          >
+                            <span className="block h-[3px] w-full rounded-full bg-white/20 overflow-hidden">
+                              <span
+                                key={
+                                  isCurrent ? `d-prog-${slideIndex}-${paused}` : `d-static-${idx}`
+                                }
+                                className={`block h-full w-full rounded-full ${
+                                  isCurrent ? 'bg-[#F16A2E]' : 'bg-white/75'
+                                } ${
+                                  isCurrent && !paused
+                                    ? 'actake-slide-progress-fill'
+                                    : isPast || isCurrent
+                                      ? 'scale-x-100'
+                                      : 'scale-x-0'
+                                }`}
+                              />
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
             </div>
           </section>
 
-          {/* RIGHT COLUMN: Spacious Full-Width Auth Workspace (Aligned in Clean Rows) */}
+          {/* RIGHT COLUMN: Full-Screen Spacious Auth Workspace */}
           <section
             aria-label="Sign in options"
             className="flex-1 min-w-0 flex flex-col justify-center py-2 lg:py-4"
           >
-            <div className="w-full space-y-7 lg:space-y-8">
-              {/* Heading Row */}
+            <div className="w-full space-y-6 lg:space-y-7">
+              {/* Heading */}
               <div className="space-y-3">
                 <h1 className="font-display text-3xl lg:text-4xl xl:text-[44px] font-extrabold text-white tracking-tight leading-[1.08]">
                   Welcome back
                 </h1>
                 <p className="text-sm lg:text-[15.5px] text-white/65 leading-relaxed max-w-xl">
                   Sign in to your Actake vault to lock daily accountability stakes, monitor live
-                  USDC &amp; SOL balances, and verify your streak with live camera proof.
+                  USDC &amp; SOL balances, and verify your streak.
                 </p>
               </div>
 
-              {/* Error Banner */}
-              {error && (
-                <div
-                  role="alert"
-                  className="rounded-2xl bg-red-950/75 border border-red-500/40 px-5 py-4 flex items-start gap-3 text-xs text-red-200"
-                >
-                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                  <div className="min-w-0">
-                    <div className="font-bold text-red-100">Sign-in did not complete</div>
-                    <p className="mt-1 leading-relaxed">{error}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Flagship Recommended Sign-In Row (Pollar) */}
-              {primaryWallet && (
-                <button
-                  type="button"
-                  disabled={connecting || !primaryWallet.available}
-                  onClick={() => onConnect(primaryWallet.id)}
-                  className="w-full min-h-[68px] px-6 py-4 rounded-2xl bg-[#F16A2E] hover:bg-[#E05920] disabled:opacity-60 text-white shadow-[0_18px_42px_rgba(241,106,46,0.30)] flex flex-wrap items-center justify-between gap-4 transition-colors cursor-pointer"
-                >
-                  <span className="flex items-center gap-4 min-w-0 text-left">
-                    {primaryWallet.kind === 'pollar' ? (
-                      <img
-                        src={POLLAR_LOGO_SRC}
-                        alt=""
-                        referrerPolicy="no-referrer"
-                        className="w-10 h-10 rounded-xl object-contain bg-[#0C1324] p-1 shrink-0 border border-white/15"
-                      />
-                    ) : (
-                      <WalletBrandIcon option={primaryWallet} size="md" theme="dark" />
-                    )}
-                    <span className="min-w-0">
-                      <span className="block text-base font-bold leading-snug truncate">
-                        {connecting ? 'Connecting...' : formatShortWalletLabel(primaryWallet)}
-                      </span>
-                      <span className="block text-xs text-white/85 mt-0.5 truncate">
-                        {getWalletCapabilityLine(primaryWallet)}
-                      </span>
-                    </span>
-                  </span>
-
-                  <span className="inline-flex items-center gap-2 text-xs font-bold text-white whitespace-nowrap shrink-0">
-                    <span>Recommended</span>
-                    {connecting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <ArrowRight className="w-4 h-4" />
-                    )}
-                  </span>
-                </button>
-              )}
-
-              {/* Clean Horizontal Divider */}
-              <div className="flex items-center gap-4 text-xs text-white/40">
-                <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
-                <span className="whitespace-nowrap">or connect another wallet</span>
-                <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
-              </div>
-
-              {/* Spacious Responsive Row Grid of Secondary Wallets (Synced Icons, Zero Duplication) */}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                {secondaryWallets.map((w) => {
-                  const isDisabled = !w.available || connecting;
-                  return (
+                  {/* Collapsible Helpful Guide & Step-by-Step Navigation (Above Sign-In Buttons, Closed by Default) */}
+                  <div className="rounded-2xl bg-white/[0.03] border border-white/10 overflow-hidden">
                     <button
-                      key={w.id}
                       type="button"
-                      disabled={isDisabled}
-                      onClick={() => onConnect(w.id)}
-                      className={`group w-full min-h-[84px] p-4 rounded-2xl border text-left transition-all flex items-center justify-between gap-4 ${
-                        !w.available
-                          ? 'bg-white/[0.03] border-white/[0.08] opacity-55 cursor-not-allowed'
-                          : 'bg-white/[0.05] hover:bg-white/[0.09] border-white/12 hover:border-[#F16A2E]/75 cursor-pointer disabled:opacity-60'
-                      }`}
+                      aria-expanded={guideExpanded}
+                      onClick={() => setGuideExpanded((prev) => !prev)}
+                      className="w-full min-h-[46px] px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-white/[0.05] transition-colors cursor-pointer"
                     >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <WalletBrandIcon option={w} size="md" theme="dark" />
-                        <div className="min-w-0">
-                          <div className="text-sm font-bold text-white leading-snug truncate">
-                            {formatDesktopWalletTitle(w)}
-                          </div>
-                          <div className="text-xs text-white/55 mt-0.5 leading-snug line-clamp-2">
-                            {getWalletCapabilityLine(w)}
-                          </div>
-                        </div>
-                      </div>
+                      <span className="inline-flex items-center gap-2 text-xs font-semibold text-white/85 min-w-0">
+                        <HelpCircle className="w-3.5 h-3.5 text-[#F16A2E] shrink-0" />
+                        <span className="truncate">
+                          Which option is best &amp; how to navigate Actake
+                        </span>
+                      </span>
+                      <ChevronDown
+                        className={`w-4 h-4 text-white/55 shrink-0 transition-transform duration-200 ${
+                          guideExpanded ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
 
-                      <div className="shrink-0">
-                        {!w.available ? (
-                          <span className="text-[11px] font-medium text-white/45 whitespace-nowrap">
-                            Android only
+                    {guideExpanded && (
+                      <div className="border-t border-white/10 p-4 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-black/40 border border-white/8">
+                            <button
+                              type="button"
+                              onClick={() => setInfoTab('best')}
+                              className={`px-3 py-1.5 rounded-lg text-[11.5px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                                infoTab === 'best'
+                                  ? 'bg-white/14 text-white'
+                                  : 'text-white/55 hover:text-white'
+                              }`}
+                            >
+                              Which option is best?
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInfoTab('navigate')}
+                              className={`px-3 py-1.5 rounded-lg text-[11.5px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                                infoTab === 'navigate'
+                                  ? 'bg-white/14 text-white'
+                                  : 'text-white/55 hover:text-white'
+                              }`}
+                            >
+                              How to navigate
+                            </button>
+                          </div>
+                          <span className="inline-flex items-center gap-1 text-[11px] text-white/55">
+                            <RefreshCw className="w-3 h-3 text-[#F16A2E]" />
+                            <span>Switch wallet anytime</span>
                           </span>
+                        </div>
+
+                        {infoTab === 'best' ? (
+                          <div className="divide-y divide-white/8">
+                            {OPTION_COMPARISON.map((row) => (
+                              <div
+                                key={row.id}
+                                className="py-2.5 first:pt-0 last:pb-0 flex items-start justify-between gap-3"
+                              >
+                                <div className="flex items-start gap-2.5 min-w-0">
+                                  {row.id === 'pollar' ? (
+                                    <img
+                                      src={POLLAR_LOGO_SRC}
+                                      alt=""
+                                      referrerPolicy="no-referrer"
+                                      className="w-5 h-5 rounded-md object-contain bg-[#0C1324] p-0.5 shrink-0 mt-0.5"
+                                    />
+                                  ) : row.id === 'solana' ? (
+                                    <SolflareMark className="w-4 h-4 shrink-0 mt-0.5" />
+                                  ) : (
+                                    <KeyRound className="w-4 h-4 text-[#34D399] shrink-0 mt-0.5" />
+                                  )}
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-baseline gap-x-2">
+                                      <span className="text-xs font-bold text-white">
+                                        {row.title}
+                                      </span>
+                                      <span className="text-[11px] font-semibold text-[#F16A2E]">
+                                        {row.tag}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11.5px] text-white/60 mt-0.5 leading-relaxed">
+                                      {row.detail}
+                                    </p>
+                                  </div>
+                                </div>
+                                <span className="text-[11px] font-mono text-white/45 tabular-nums whitespace-nowrap shrink-0">
+                                  {row.setup}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs font-bold text-white/85 group-hover:text-[#F16A2E] transition-colors whitespace-nowrap">
-                            <span>
-                              {w.kind === 'mwa'
-                                ? 'Pair'
-                                : w.kind === 'browser-vault'
-                                  ? 'Start'
-                                  : 'Connect'}
-                            </span>
-                            <ChevronRight className="w-4 h-4 text-white/45 group-hover:text-[#F16A2E] group-hover:translate-x-0.5 transition-all" />
-                          </span>
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5">
+                              {NAVIGATION_STEPS.map((item) => {
+                                const Icon = item.icon;
+                                return (
+                                  <div
+                                    key={item.step}
+                                    className="rounded-xl bg-black/30 border border-white/8 p-3 space-y-1.5"
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <Icon className="w-3.5 h-3.5 text-[#F16A2E]" />
+                                      <span className="font-mono text-[10px] font-bold text-white/40 tabular-nums">
+                                        {item.step}
+                                      </span>
+                                    </div>
+                                    <div className="text-xs font-bold text-white">{item.title}</div>
+                                    <p className="text-[11px] text-white/60 leading-relaxed">
+                                      {item.detail}
+                                    </p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="flex items-center gap-2 text-[11.5px] text-white/60">
+                              <Fuel className="w-3.5 h-3.5 text-[#4ADE80] shrink-0" />
+                              <span>
+                                Keep ~0.01 Devnet SOL for gas, or fund via Pollar RAMP after sign-in.
+                              </span>
+                            </div>
+                          </div>
                         )}
                       </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Spacious Collapsible Best-Option & Navigation Guide */}
-              <div className="rounded-2xl bg-white/[0.03] border border-white/10 overflow-hidden">
-                <button
-                  type="button"
-                  aria-expanded={guideExpanded}
-                  onClick={() => setGuideExpanded((prev) => !prev)}
-                  className="w-full min-h-[54px] px-5 py-3.5 flex items-center justify-between gap-4 text-left hover:bg-white/[0.04] transition-colors cursor-pointer"
-                >
-                  <span className="inline-flex items-center gap-2.5 text-xs font-semibold text-white/90 min-w-0">
-                    <HelpCircle className="w-4 h-4 text-[#F16A2E] shrink-0" />
-                    <span className="truncate">
-                      Which sign-in option is best &amp; how to navigate Actake
-                    </span>
-                  </span>
-                  <ChevronDown
-                    className={`w-4 h-4 text-white/55 shrink-0 transition-transform duration-200 ${
-                      guideExpanded ? 'rotate-180' : ''
-                    }`}
-                  />
-                </button>
-
-                {guideExpanded && (
-                  <div className="border-t border-white/10 p-5 space-y-5">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-black/40 border border-white/8">
-                        <button
-                          type="button"
-                          onClick={() => setInfoTab('best')}
-                          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
-                            infoTab === 'best'
-                              ? 'bg-white/14 text-white'
-                              : 'text-white/55 hover:text-white'
-                          }`}
-                        >
-                          Which option is best?
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setInfoTab('navigate')}
-                          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
-                            infoTab === 'navigate'
-                              ? 'bg-white/14 text-white'
-                              : 'text-white/55 hover:text-white'
-                          }`}
-                        >
-                          How to navigate
-                        </button>
-                      </div>
-                      <span className="inline-flex items-center gap-1.5 text-xs text-white/55">
-                        <RefreshCw className="w-3.5 h-3.5 text-[#F16A2E]" />
-                        <span>Switch wallet anytime</span>
-                      </span>
-                    </div>
-
-                    {infoTab === 'best' ? (
-                      <div className="divide-y divide-white/8">
-                        {OPTION_COMPARISON.map((row) => (
-                          <div
-                            key={row.id}
-                            className="py-3.5 first:pt-0 last:pb-0 flex items-start justify-between gap-4"
-                          >
-                            <div className="flex items-start gap-3 min-w-0">
-                              {row.id === 'pollar' ? (
-                                <img
-                                  src={POLLAR_LOGO_SRC}
-                                  alt=""
-                                  referrerPolicy="no-referrer"
-                                  className="w-6 h-6 rounded-md object-contain bg-[#0C1324] p-0.5 shrink-0 mt-0.5"
-                                />
-                              ) : row.id === 'solana' ? (
-                                <SolflareMark className="w-5 h-5 shrink-0 mt-0.5" />
-                              ) : (
-                                <KeyRound className="w-4 h-4 text-[#34D399] shrink-0 mt-1" />
-                              )}
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                  <span className="text-xs font-bold text-white">{row.title}</span>
-                                  <span className="text-[11px] font-semibold text-[#F16A2E]">
-                                    {row.tag}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-white/60 mt-1 leading-relaxed">
-                                  {row.detail}
-                                </p>
-                              </div>
-                            </div>
-                            <span className="text-[11px] font-mono text-white/45 tabular-nums whitespace-nowrap shrink-0">
-                              {row.setup}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
-                          {NAVIGATION_STEPS.map((item) => {
-                            const Icon = item.icon;
-                            return (
-                              <div
-                                key={item.step}
-                                className="rounded-xl bg-black/30 border border-white/8 p-4 space-y-2"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <Icon className="w-4 h-4 text-[#F16A2E]" />
-                                  <span className="font-mono text-[10px] font-bold text-white/40 tabular-nums">
-                                    {item.step}
-                                  </span>
-                                </div>
-                                <div className="text-xs font-bold text-white">{item.title}</div>
-                                <p className="text-[11.5px] text-white/60 leading-relaxed">
-                                  {item.detail}
-                                </p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-white/60 pt-1">
-                          <Fuel className="w-3.5 h-3.5 text-[#4ADE80] shrink-0" />
-                          <span>
-                            Keep ~0.01 Devnet SOL for gas, or fund USDC/SOL directly through Pollar
-                            RAMP after signing in.
-                          </span>
-                        </div>
-                      </div>
                     )}
                   </div>
-                )}
+
+                  {/* Error Banner */}
+                  {error && (
+                    <div
+                      role="alert"
+                      className="rounded-2xl bg-red-950/75 border border-red-500/40 px-4 py-3 flex items-start gap-2.5 text-xs text-red-200"
+                    >
+                      <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <div className="font-bold text-red-100">Sign-in did not complete</div>
+                        <p className="mt-0.5 leading-relaxed">{error}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Flagship Recommended Sign-In CTA (Pollar) */}
+                  {primaryWallet && (
+                    <button
+                      type="button"
+                      disabled={connecting || !primaryWallet.available}
+                      onClick={() => onConnect(primaryWallet.id)}
+                      className="w-full min-h-[64px] px-5 py-3.5 rounded-2xl bg-[#F16A2E] hover:bg-[#E05920] disabled:opacity-60 text-white shadow-[0_14px_34px_rgba(241,106,46,0.28)] flex flex-wrap items-center justify-between gap-3 transition-colors cursor-pointer"
+                    >
+                      <span className="flex items-center gap-3.5 min-w-0 text-left">
+                        {primaryWallet.kind === 'pollar' ? (
+                          <img
+                            src={POLLAR_LOGO_SRC}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            className="w-9 h-9 rounded-xl object-contain bg-[#0C1324] p-1 shrink-0 border border-white/15"
+                          />
+                        ) : (
+                          <WalletBrandIcon option={primaryWallet} size="md" theme="dark" />
+                        )}
+                        <span className="min-w-0">
+                          <span className="block text-[15px] font-bold leading-snug truncate">
+                            {connecting ? 'Connecting...' : formatShortWalletLabel(primaryWallet)}
+                          </span>
+                          <span className="block text-[11.5px] text-white/85 mt-0.5 truncate">
+                            {getWalletCapabilityLine(primaryWallet)}
+                          </span>
+                        </span>
+                      </span>
+
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-white whitespace-nowrap shrink-0">
+                        <span>Recommended</span>
+                        {connecting ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ArrowRight className="w-4 h-4" />
+                        )}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Divider */}
+                  <div className="flex items-center gap-3 text-xs text-white/40">
+                    <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
+                    <span className="whitespace-nowrap">or connect another wallet</span>
+                    <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
+                  </div>
+
+                  {/* Responsive Grid of Secondary Wallets */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    {secondaryWallets.map((w) => {
+                      const isDisabled = !w.available || connecting;
+                      return (
+                        <button
+                          key={w.id}
+                          type="button"
+                          disabled={isDisabled}
+                          onClick={() => onConnect(w.id)}
+                          className={`group w-full min-h-[74px] p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 ${
+                            !w.available
+                              ? 'bg-white/[0.03] border-white/[0.08] opacity-55 cursor-not-allowed'
+                              : 'bg-white/[0.05] hover:bg-white/[0.09] border-white/12 hover:border-[#F16A2E]/75 cursor-pointer disabled:opacity-60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <WalletBrandIcon option={w} size="sm" theme="dark" />
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-white leading-snug truncate">
+                                {formatDesktopWalletTitle(w)}
+                              </div>
+                              <div className="text-[11px] text-white/55 mt-0.5 leading-snug line-clamp-1">
+                                {getWalletCapabilityLine(w)}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="shrink-0">
+                            {!w.available ? (
+                              <span className="text-[10.5px] font-medium text-white/45 whitespace-nowrap">
+                                Android only
+                              </span>
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-white/45 group-hover:text-[#F16A2E] group-hover:translate-x-0.5 transition-all" />
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
               </div>
             </div>
           </section>
         </main>
 
-        {/* Clean Standard Full-Width Footer */}
+        {/* Clean Full-Width Standard SaaS Footer */}
         <footer className="w-full px-6 md:px-10 lg:px-14 xl:px-20 py-5 border-t border-white/[0.07] bg-[#0B0C10]/65 flex flex-wrap items-center justify-between gap-4 text-xs text-white/45 shrink-0">
           <span>© {new Date().getFullYear()} Actake. All rights reserved.</span>
           <span>Non-custodial accountability escrow · Switch wallets anytime</span>
