@@ -204,6 +204,11 @@ export const WalletSheet: React.FC<WalletSheetProps> = ({
               <div className="font-mono font-bold text-xs text-white mt-0.5">
                 {liveSolBalance !== null ? `${liveSolBalance.toFixed(4)}` : '—'}
               </div>
+              {liveSolBalance !== null && devnet.solPriceUsd !== null && (
+                <div className="font-mono text-[10px] text-white/60 mt-0.5">
+                  ≈ ${(liveSolBalance * devnet.solPriceUsd).toFixed(2)}
+                </div>
+              )}
             </div>
           </div>
 

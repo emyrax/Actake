@@ -7,7 +7,7 @@ import {
   TransactionInstruction,
 } from '@solana/web3.js';
 import bs58 from 'bs58';
-import { TokenType } from '../types/actake';
+import { OnChainTransactionDetails, TokenType } from '../types/actake';
 import { safeFetchJson } from '../utils/safeFetchJson';
 
 export const DEFAULT_ACTAKE_ESCROW_PROGRAM_ID = 'ACTKescrow111111111111111111111111111111111';
@@ -140,6 +140,10 @@ function hexToUint8Array(hex: string): Uint8Array {
 
 export function buildDevnetExplorerTxUrl(signature: string): string {
   return `https://explorer.solana.com/tx/${encodeURIComponent(signature)}?cluster=devnet`;
+}
+
+export function buildDevnetSolscanTxUrl(signature: string): string {
+  return `https://solscan.io/tx/${encodeURIComponent(signature)}?cluster=devnet`;
 }
 
 export function buildDevnetExplorerAddressUrl(address: string): string {
@@ -301,36 +305,82 @@ async function fetchSplTokenBalance(publicKey: string, mint: string): Promise<nu
   }
 }
 
+export async function fetchLiveSolPrice(): Promise<{
+  solPriceUsd: number | null;
+  solChange24hPct: number | null;
+}> {
+  try {
+    const payload = await safeFetchJson<{
+      priceUsd?: number;
+      change24hPct?: number | null;
+    }>('/api/solana/price', {
+      method: 'GET',
+      retries: 1,
+      fallbackError: 'Unable to fetch live SOL price.',
+    });
+    const price = Number(payload?.priceUsd);
+    const change =
+      typeof payload?.change24hPct === 'number' && Number.isFinite(payload.change24hPct)
+        ? payload.change24hPct
+        : null;
+    return {
+      solPriceUsd: Number.isFinite(price) && price > 0 ? price : null,
+      solChange24hPct: change,
+    };
+  } catch {
+    return { solPriceUsd: null, solChange24hPct: null };
+  }
+}
+
+export async function fetchOnChainTransactionDetails(
+  signature: string
+): Promise<OnChainTransactionDetails> {
+  return safeFetchJson<OnChainTransactionDetails>(
+    `/api/solana/tx/${encodeURIComponent(signature.trim())}`,
+    {
+      method: 'GET',
+      retries: 1,
+      fallbackError: 'Unable to fetch live Solana transaction status.',
+    }
+  );
+}
+
 export async function fetchDevnetTelemetry(publicKey?: string): Promise<{
   slot: number;
   solBalance: number | null;
   usdcBalance: number | null;
   skrBalance: number | null;
+  solPriceUsd: number | null;
+  solChange24hPct: number | null;
   blockhash: string;
 }> {
-  const [slot, blockhashResp, balanceResp, usdcBalance, skrBalance] = await Promise.all([
-    solanaRpc<number>('getSlot', [{ commitment: 'confirmed' }]),
-    solanaRpc<{ value: { blockhash: string } }>('getLatestBlockhash', [
-      { commitment: 'confirmed' },
-    ]),
-    publicKey
-      ? solanaRpc<{ value: number }>('getBalance', [publicKey, { commitment: 'confirmed' }]).catch(
-          () => ({ value: 0 })
-        )
-      : Promise.resolve(null),
-    publicKey
-      ? fetchSplTokenBalance(publicKey, TOKEN_CONFIGS.USDC.mint)
-      : Promise.resolve(null),
-    publicKey
-      ? fetchSplTokenBalance(publicKey, TOKEN_CONFIGS.SKR.mint)
-      : Promise.resolve(null),
-  ]);
+  const [slot, blockhashResp, balanceResp, usdcBalance, skrBalance, priceQuote] =
+    await Promise.all([
+      solanaRpc<number>('getSlot', [{ commitment: 'confirmed' }]),
+      solanaRpc<{ value: { blockhash: string } }>('getLatestBlockhash', [
+        { commitment: 'confirmed' },
+      ]),
+      publicKey
+        ? solanaRpc<{ value: number }>('getBalance', [publicKey, { commitment: 'confirmed' }]).catch(
+            () => ({ value: 0 })
+          )
+        : Promise.resolve(null),
+      publicKey
+        ? fetchSplTokenBalance(publicKey, TOKEN_CONFIGS.USDC.mint)
+        : Promise.resolve(null),
+      publicKey
+        ? fetchSplTokenBalance(publicKey, TOKEN_CONFIGS.SKR.mint)
+        : Promise.resolve(null),
+      fetchLiveSolPrice(),
+    ]);
 
   return {
     slot,
     solBalance: balanceResp ? balanceResp.value / 1_000_000_000 : null,
     usdcBalance,
     skrBalance,
+    solPriceUsd: priceQuote.solPriceUsd,
+    solChange24hPct: priceQuote.solChange24hPct,
     blockhash: blockhashResp.value.blockhash,
   };
 }

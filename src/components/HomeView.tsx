@@ -338,20 +338,33 @@ export const HomeView: React.FC<HomeViewProps> = ({
     [activeStakes]
   );
 
-  // Total Vault Balance strictly in USD/USDC (free live USDC + locked USDC stakes)
-  const combinedVaultUsd = Number((freeUsdcBalance + lockedUsdcUsd).toFixed(2));
+  // Live SOL -> USDC market equivalent & 24h fluctuation
+  const solValueUsdc =
+    liveSolBalance !== null && devnet.solPriceUsd !== null
+      ? Number((liveSolBalance * devnet.solPriceUsd).toFixed(2))
+      : 0;
+  const solChange24hPct = devnet.solChange24hPct;
+  const solDelta24hUsdc =
+    solValueUsdc > 0 && solChange24hPct !== null && 100 + solChange24hPct > 0
+      ? Number((solValueUsdc - solValueUsdc / (1 + solChange24hPct / 100)).toFixed(2))
+      : null;
+
+  // Total Vault Balance strictly in USDC (free live USDC + locked USDC stakes + live SOL equivalent in USDC)
+  const combinedVaultUsd = Number((freeUsdcBalance + lockedUsdcUsd + solValueUsdc).toFixed(2));
   const balancesLoading = devnet.syncing || (isPollarConnected && pollar.solanaBalances.loading);
   const balanceSourceLabel =
     isPollarConnected && pollar.solanaBalances.usdc !== null
       ? 'Synced via Pollar'
       : 'Live on Devnet';
 
-  // 7-day vault trend built strictly from real stake & payout history (flat baseline when empty)
+  // 7-day vault trend built strictly from real stake, payout history & live SOL 24h valuation
   const vaultMomentumValues = useMemo(() => {
     const dayMs = 86_400_000;
     const endOfToday = new Date(nowMs);
     endOfToday.setHours(23, 59, 59, 999);
     const endTs = endOfToday.getTime();
+    const prevDaySolUsdc =
+      solDelta24hUsdc !== null ? Math.max(0, Number((solValueUsdc - solDelta24hUsdc).toFixed(2))) : solValueUsdc;
 
     const buckets: number[] = [];
     for (let i = 6; i >= 0; i--) {
@@ -367,11 +380,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
             s.createdAt <= cutoffTs
         )
         .reduce((sum, s) => sum + s.amount, 0);
-      buckets.push(Number((onChainFreeUsdc + earnedUpToDay + lockedUpToDay).toFixed(2)));
+      const solBaseline = i === 0 ? solValueUsdc : prevDaySolUsdc;
+      buckets.push(Number((onChainFreeUsdc + earnedUpToDay + lockedUpToDay + solBaseline).toFixed(2)));
     }
     buckets[6] = combinedVaultUsd;
     return buckets;
-  }, [history, stakes, onChainFreeUsdc, combinedVaultUsd, Math.floor(nowMs / 3_600_000)]);
+  }, [
+    history,
+    stakes,
+    onChainFreeUsdc,
+    solValueUsdc,
+    solDelta24hUsdc,
+    combinedVaultUsd,
+    Math.floor(nowMs / 3_600_000),
+  ]);
 
   const selectedSoundLabel =
     ALARM_SOUNDS.find((a) => a.id === alarmSettings.selectedSound)?.label || 'Siren';
@@ -496,8 +518,39 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   <span>{balanceSourceLabel}</span>
                 </span>
               </div>
-              <div className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight tabular-nums mt-1">
-                ${combinedVaultUsd.toFixed(2)}
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight tabular-nums">
+                  $
+                  {combinedVaultUsd.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
+                <span className="text-xs font-mono font-bold text-white/60">USDC</span>
+                {solChange24hPct !== null && (
+                  <span
+                    className={`inline-flex items-center gap-0.5 text-xs font-mono font-bold tabular-nums ${
+                      solChange24hPct >= 0 ? 'text-[#4ADE80]' : 'text-[#F87171]'
+                    }`}
+                  >
+                    <span>{solChange24hPct >= 0 ? '▲' : '▼'}</span>
+                    <span>
+                      {solChange24hPct >= 0 ? '+' : ''}
+                      {solChange24hPct.toFixed(2)}%
+                    </span>
+                    {solDelta24hUsdc !== null && (
+                      <span className="text-[11px] opacity-85 ml-0.5">
+                        ({solDelta24hUsdc >= 0 ? '+' : '-'}$
+                        {Math.abs(solDelta24hUsdc).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                        )
+                      </span>
+                    )}
+                    <span className="text-[10px] text-white/50 font-normal ml-0.5">24h</span>
+                  </span>
+                )}
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/75 tabular-nums">
                 <span className="text-[#4ADE80] font-semibold">
@@ -510,8 +563,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   {totalSkrBalance === 0 ? '0' : totalSkrBalance.toFixed(2)} SKR
                 </span>
                 <span aria-hidden="true">·</span>
-                <span className="text-white/65">
-                  {liveSolBalance !== null ? `${liveSolBalance.toFixed(4)} SOL` : '— SOL'}
+                <span className="text-white/80 font-medium">
+                  {liveSolBalance !== null
+                    ? `${liveSolBalance.toFixed(4)} SOL${
+                        devnet.solPriceUsd !== null
+                          ? ` (≈ $${solValueUsdc.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })} USDC)`
+                          : ''
+                      }`
+                    : '— SOL'}
                 </span>
               </div>
             </div>
@@ -1276,6 +1338,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <div className="font-mono font-bold text-sm text-[#111114] mt-0.5">
                   {liveSolBalance !== null ? liveSolBalance.toFixed(4) : '—'}
                 </div>
+                {liveSolBalance !== null && devnet.solPriceUsd !== null && (
+                  <div className="font-mono text-[10px] text-[#6B6663] mt-0.5">
+                    ≈ ${solValueUsdc.toFixed(2)} USDC
+                  </div>
+                )}
               </div>
             </div>
 

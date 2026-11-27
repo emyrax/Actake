@@ -43,6 +43,7 @@ import {
   deriveEscrowPoolPda,
   fetchDevnetTelemetry,
   fetchLatestDevnetBlockhash,
+  fetchLiveSolPrice,
   resolveStakeDepositDestination,
   TOKEN_CONFIGS,
 } from './solana/actakeEscrow';
@@ -142,12 +143,14 @@ export default function App() {
     }, 3800);
   }, []);
 
-  // Solana Devnet telemetry (live SOL, SPL USDC, Token-2022 SKR & slot)
+  // Solana Devnet telemetry (live SOL, SPL USDC, Token-2022 SKR, SOL/USD price & slot)
   const [devnet, setDevnet] = useState<DevnetSyncState>({
     slot: null,
     solBalance: null,
     usdcBalance: null,
     skrBalance: null,
+    solPriceUsd: null,
+    solChange24hPct: null,
     blockhash: null,
     lastSyncedAt: null,
     syncing: false,
@@ -397,16 +400,18 @@ export default function App() {
       setDevnet((prev) => ({ ...prev, syncing: true, error: null }));
       try {
         const result = await fetchDevnetTelemetry(pubkey);
-        setDevnet({
+        setDevnet((prev) => ({
           slot: result.slot,
           solBalance: result.solBalance,
           usdcBalance: result.usdcBalance,
           skrBalance: result.skrBalance,
+          solPriceUsd: result.solPriceUsd ?? prev.solPriceUsd,
+          solChange24hPct: result.solChange24hPct ?? prev.solChange24hPct,
           blockhash: result.blockhash,
           lastSyncedAt: Date.now(),
           syncing: false,
           error: null,
-        });
+        }));
         if (notifyUser) {
           pushToast(
             'success',
@@ -436,6 +441,28 @@ export default function App() {
       void syncDevnet(wallet.publicKey, false);
     }
   }, [wallet?.publicKey, syncDevnet]);
+
+  // Periodically refresh live SOL/USD market price & 24h fluctuation every 60s
+  useEffect(() => {
+    if (!wallet) return;
+    let active = true;
+    const refreshPrice = async () => {
+      const quote = await fetchLiveSolPrice();
+      if (!active || quote.solPriceUsd === null) return;
+      setDevnet((prev) => ({
+        ...prev,
+        solPriceUsd: quote.solPriceUsd,
+        solChange24hPct: quote.solChange24hPct ?? prev.solChange24hPct,
+      }));
+    };
+    const timer = window.setInterval(() => {
+      void refreshPrice();
+    }, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [wallet?.publicKey]);
 
   // Fetch randomized AI challenge from Gemini 4 Hydrogen server route
   const requestChallengeForStake = useCallback(
@@ -1465,6 +1492,7 @@ export default function App() {
                 history={userData.history}
                 stakes={userData.stakes}
                 streakDays={userData.streakDays}
+                solPriceUsd={devnet.solPriceUsd}
               />
             )}
 

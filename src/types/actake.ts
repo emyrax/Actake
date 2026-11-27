@@ -249,10 +249,30 @@ export interface DevnetSyncState {
   solBalance: number | null;
   usdcBalance: number | null;
   skrBalance: number | null;
+  solPriceUsd: number | null;
+  solChange24hPct: number | null;
   blockhash: string | null;
   lastSyncedAt: number | null;
   syncing: boolean;
   error: string | null;
+}
+
+export interface OnChainTransactionDetails {
+  signature: string;
+  foundOnChain: boolean;
+  confirmationStatus: 'finalized' | 'confirmed' | 'processed' | 'not_found';
+  confirmations: number | null;
+  slot: number | null;
+  blockTime: number | null;
+  networkFeeLamports: number | null;
+  networkFeeSol: number | null;
+  computeUnitsConsumed: number | null;
+  err: unknown | null;
+  feePayer: string | null;
+  programs: string[];
+  memoText: string | null;
+  explorerUrl: string;
+  fetchedAt: number;
 }
 
 export interface SystemReadinessReport {

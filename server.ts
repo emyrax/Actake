@@ -2021,6 +2021,305 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
     }
   }
 
+  // ============================================================================
+  // LIVE SOL/USD PRICE FEED & REAL-TIME ON-CHAIN TRANSACTION INSPECTOR
+  // ============================================================================
+  let cachedSolPrice: {
+    priceUsd: number;
+    change24hPct: number | null;
+    source: string;
+    updatedAt: number;
+  } | null = null;
+
+  async function fetchLiveSolMarketPrice(): Promise<{
+    priceUsd: number;
+    change24hPct: number | null;
+    source: string;
+    updatedAt: number;
+  }> {
+    const now = Date.now();
+    if (cachedSolPrice && now - cachedSolPrice.updatedAt < 30_000) {
+      return cachedSolPrice;
+    }
+
+    const providers: Array<() => Promise<{ priceUsd: number; change24hPct: number | null; source: string }>> = [
+      async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 4500);
+        try {
+          const resp = await fetch(
+            'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true',
+            { signal: controller.signal, headers: { Accept: 'application/json' } }
+          );
+          if (!resp.ok) throw new Error(`CoinGecko HTTP ${resp.status}`);
+          const json = await safeReadUpstreamJson<{
+            solana?: { usd?: number; usd_24h_change?: number };
+          }>(resp, 'CoinGecko unavailable');
+          const priceUsd = Number(json?.solana?.usd);
+          if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+            throw new Error('CoinGecko invalid SOL price');
+          }
+          const rawChange = Number(json?.solana?.usd_24h_change);
+          return {
+            priceUsd,
+            change24hPct: Number.isFinite(rawChange) ? Number(rawChange.toFixed(2)) : null,
+            source: 'CoinGecko',
+          };
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+      async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 4500);
+        try {
+          const resp = await fetch('https://api.kraken.com/0/public/Ticker?pair=SOLUSD', {
+            signal: controller.signal,
+            headers: { Accept: 'application/json' },
+          });
+          if (!resp.ok) throw new Error(`Kraken HTTP ${resp.status}`);
+          const json = await safeReadUpstreamJson<{
+            result?: Record<string, { c?: string[]; o?: string }>;
+          }>(resp, 'Kraken unavailable');
+          const entry = json?.result ? Object.values(json.result)[0] : undefined;
+          const priceUsd = Number(entry?.c?.[0]);
+          const openUsd = Number(entry?.o);
+          if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+            throw new Error('Kraken invalid SOL price');
+          }
+          const change24hPct =
+            Number.isFinite(openUsd) && openUsd > 0
+              ? Number((((priceUsd - openUsd) / openUsd) * 100).toFixed(2))
+              : null;
+          return { priceUsd, change24hPct, source: 'Kraken' };
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+      async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 4500);
+        try {
+          const resp = await fetch('https://api.coinbase.com/v2/prices/SOL-USD/spot', {
+            signal: controller.signal,
+            headers: { Accept: 'application/json' },
+          });
+          if (!resp.ok) throw new Error(`Coinbase HTTP ${resp.status}`);
+          const json = await safeReadUpstreamJson<{
+            data?: { amount?: string };
+          }>(resp, 'Coinbase unavailable');
+          const priceUsd = Number(json?.data?.amount);
+          if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+            throw new Error('Coinbase invalid SOL price');
+          }
+          return { priceUsd, change24hPct: null, source: 'Coinbase' };
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+    ];
+
+    for (const provider of providers) {
+      try {
+        const quote = await provider();
+        cachedSolPrice = {
+          ...quote,
+          updatedAt: Date.now(),
+        };
+        return cachedSolPrice;
+      } catch {
+        // try next live market provider
+      }
+    }
+
+    if (cachedSolPrice) {
+      return cachedSolPrice;
+    }
+
+    throw new Error('Live SOL/USD price feeds are temporarily unreachable.');
+  }
+
+  app.get('/api/solana/price', async (_req, res) => {
+    try {
+      const quote = await fetchLiveSolMarketPrice();
+      res.json({
+        symbol: 'SOL',
+        ...quote,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to fetch SOL/USD price.';
+      res.status(502).json({ error: message });
+    }
+  });
+
+  app.get('/api/solana/tx/:signature', async (req, res) => {
+    try {
+      const signature = String(req.params.signature || '').trim();
+      if (!signature || signature.length < 24 || signature.length > 128) {
+        res.status(400).json({ error: 'Invalid Solana transaction signature.' });
+        return;
+      }
+
+      const rpcUrl = process.env.SOLANA_RPC_URL?.trim() || 'https://api.devnet.solana.com';
+      const explorerUrl = `https://explorer.solana.com/tx/${encodeURIComponent(signature)}?cluster=devnet`;
+      const isValidBase58Sig = /^[1-9A-HJ-NP-Za-km-z]{64,100}$/.test(signature);
+
+      if (!isValidBase58Sig) {
+        res.json({
+          signature,
+          foundOnChain: false,
+          confirmationStatus: 'not_found',
+          confirmations: null,
+          slot: null,
+          blockTime: null,
+          networkFeeLamports: null,
+          networkFeeSol: null,
+          computeUnitsConsumed: null,
+          err: null,
+          feePayer: null,
+          programs: [],
+          memoText: null,
+          explorerUrl,
+          fetchedAt: Date.now(),
+        });
+        return;
+      }
+
+      const [statusResp, txResp] = await Promise.all([
+        fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getSignatureStatuses',
+            params: [[signature], { searchTransactionHistory: true }],
+          }),
+        }),
+        fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'getTransaction',
+            params: [
+              signature,
+              {
+                encoding: 'jsonParsed',
+                maxSupportedTransactionVersion: 0,
+                commitment: 'confirmed',
+              },
+            ],
+          }),
+        }),
+      ]);
+
+      const statusJson = await safeReadUpstreamJson<{
+        result?: {
+          value?: Array<{
+            slot?: number;
+            confirmations?: number | null;
+            err?: unknown;
+            confirmationStatus?: 'processed' | 'confirmed' | 'finalized';
+          } | null>;
+        };
+      }>(statusResp, 'Solana signature status lookup failed');
+
+      const txJson = await safeReadUpstreamJson<{
+        result?: {
+          slot?: number;
+          blockTime?: number | null;
+          meta?: {
+            err?: unknown;
+            fee?: number;
+            computeUnitsConsumed?: number;
+            logMessages?: string[];
+          };
+          transaction?: {
+            message?: {
+              accountKeys?: Array<string | { pubkey?: string; signer?: boolean }>;
+              instructions?: Array<{
+                program?: string;
+                programId?: string;
+                parsed?: unknown;
+              }>;
+            };
+          };
+        } | null;
+      }>(txResp, 'Solana transaction detail lookup failed');
+
+      const statusEntry = statusJson.result?.value?.[0] || null;
+      const txEntry = txJson.result || null;
+
+      const foundOnChain = Boolean(statusEntry || txEntry);
+      const confirmationStatus: 'finalized' | 'confirmed' | 'processed' | 'not_found' =
+        statusEntry?.confirmationStatus || (txEntry ? 'confirmed' : 'not_found');
+
+      const rawFeeLamports = typeof txEntry?.meta?.fee === 'number' ? txEntry.meta.fee : null;
+      const networkFeeSol =
+        rawFeeLamports !== null ? Number((rawFeeLamports / 1_000_000_000).toFixed(9)) : null;
+
+      const accountKeys = txEntry?.transaction?.message?.accountKeys || [];
+      const firstKey = accountKeys[0];
+      const feePayer =
+        typeof firstKey === 'string'
+          ? firstKey
+          : typeof firstKey?.pubkey === 'string'
+            ? firstKey.pubkey
+            : null;
+
+      const instructions = txEntry?.transaction?.message?.instructions || [];
+      const programs = Array.from(
+        new Set(
+          instructions
+            .map((ix) => ix.program || ix.programId || '')
+            .filter((p): p is string => Boolean(p))
+        )
+      ).slice(0, 6);
+
+      let memoText: string | null = null;
+      for (const ix of instructions) {
+        if (ix.program === 'spl-memo' && typeof ix.parsed === 'string') {
+          memoText = ix.parsed;
+          break;
+        }
+      }
+      if (!memoText && Array.isArray(txEntry?.meta?.logMessages)) {
+        const memoLog = txEntry.meta.logMessages.find((l) => /Program log: Memo/i.test(l));
+        if (memoLog) {
+          memoText = memoLog.replace(/^Program log:\s*/i, '').trim();
+        }
+      }
+
+      res.json({
+        signature,
+        foundOnChain,
+        confirmationStatus,
+        confirmations:
+          typeof statusEntry?.confirmations === 'number' ? statusEntry.confirmations : null,
+        slot: txEntry?.slot ?? statusEntry?.slot ?? null,
+        blockTime: typeof txEntry?.blockTime === 'number' ? txEntry.blockTime : null,
+        networkFeeLamports: rawFeeLamports,
+        networkFeeSol,
+        computeUnitsConsumed:
+          typeof txEntry?.meta?.computeUnitsConsumed === 'number'
+            ? txEntry.meta.computeUnitsConsumed
+            : null,
+        err: txEntry?.meta?.err ?? statusEntry?.err ?? null,
+        feePayer,
+        programs,
+        memoText,
+        explorerUrl,
+        fetchedAt: Date.now(),
+      });
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Unable to fetch on-chain transaction details.';
+      res.status(502).json({ error: message });
+    }
+  });
+
   app.post('/api/solana/rpc', async (req, res) => {
     try {
       const { method, params = [] } = req.body ?? {};
@@ -2033,6 +2332,7 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
         'getSignatureStatuses',
         'getAccountInfo',
         'getTokenAccountsByOwner',
+        'getTransaction',
       ]);
 
       if (!allowedMethods.has(String(method))) {
