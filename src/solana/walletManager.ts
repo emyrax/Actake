@@ -1,5 +1,5 @@
 import { getWallets } from '@wallet-standard/app';
-import { Keypair, Transaction } from '@solana/web3.js';
+import { Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import bs58 from 'bs58';
 import {
   DiscoveredWalletOption,
@@ -42,7 +42,7 @@ interface SolanaSignAndSendFeature {
 }
 
 let activeStandardWallet: StandardWallet | null = null;
-let activeStandardAccount: unknown = null;
+let activeStandardAccount: { address: string; publicKey: Uint8Array } | null = null;
 
 export function detectPlatformCompatibility(): PlatformCompatibility {
   if (typeof navigator === 'undefined') {
@@ -317,6 +317,120 @@ export interface SignedActakeTxResult {
 }
 
 /**
+ * Restores the live Wallet Standard / MWA wallet handle after a page reload
+ * when a persisted WalletSession is loaded from localStorage.
+ */
+async function rehydrateStandardWallet(
+  session: WalletSession
+): Promise<{
+  wallet: StandardWallet;
+  account: { address: string; publicKey: Uint8Array };
+} | null> {
+  ensureMwaRegistered();
+
+  if (
+    activeStandardWallet &&
+    activeStandardAccount &&
+    activeStandardAccount.address === session.publicKey
+  ) {
+    return { wallet: activeStandardWallet, account: activeStandardAccount };
+  }
+
+  const registered = getWallets().get();
+  const matchedWallet =
+    registered.find((w) => w.name === session.walletName) ||
+    registered.find((w) => w.name.toLowerCase() === session.walletName.toLowerCase()) ||
+    (session.connectionKind === 'mwa'
+      ? registered.find((w) => /mobile wallet adapter/i.test(w.name))
+      : undefined);
+
+  if (!matchedWallet) {
+    return null;
+  }
+
+  // First check already-connected accounts exposed by the Wallet Standard adapter
+  const existingAccount = matchedWallet.accounts.find((a) => a.address === session.publicKey);
+  if (existingAccount) {
+    const accountObj = {
+      address: existingAccount.address,
+      publicKey: new Uint8Array(existingAccount.publicKey),
+    };
+    activeStandardWallet = matchedWallet;
+    activeStandardAccount = accountObj;
+    return { wallet: matchedWallet, account: accountObj };
+  }
+
+  // Otherwise reconnect cleanly via standard:connect
+  const connectFeature = matchedWallet.features['standard:connect'] as
+    | StandardConnectFeature
+    | undefined;
+  if (!connectFeature) {
+    return null;
+  }
+
+  const { accounts } = await connectFeature.connect();
+  const reconnected =
+    accounts.find((a) => a.address === session.publicKey) || accounts[0] || null;
+  if (!reconnected) {
+    return null;
+  }
+
+  const normalizedAccount = {
+    address: reconnected.address,
+    publicKey: new Uint8Array(reconnected.publicKey),
+  };
+  activeStandardWallet = matchedWallet;
+  activeStandardAccount = normalizedAccount;
+  return { wallet: matchedWallet, account: normalizedAccount };
+}
+
+/**
+ * Re-targets a Transaction's feePayer and matching signer keys to `newSigner`
+ * so `@solana/web3.js` `tx.sign(keypair)` never throws `unknown signer: <pubkey>`
+ * when signing a local Ed25519 Devnet receipt or Browser Vault transaction.
+ */
+function retargetTransactionSigner(tx: Transaction, newSigner: PublicKey): Transaction {
+  const oldFeePayer = tx.feePayer;
+  const needsRetarget =
+    !oldFeePayer ||
+    !oldFeePayer.equals(newSigner) ||
+    tx.instructions.some((ix) =>
+      ix.keys.some((k) => k.isSigner && !k.pubkey.equals(newSigner))
+    );
+
+  if (!needsRetarget) {
+    return tx;
+  }
+
+  const cloned = new Transaction({
+    feePayer: newSigner,
+    recentBlockhash: tx.recentBlockhash as NonNullable<Transaction['recentBlockhash']>,
+  });
+
+  for (const ix of tx.instructions) {
+    const updatedKeys = ix.keys.map((meta) => {
+      if (meta.isSigner || (oldFeePayer && meta.pubkey.equals(oldFeePayer))) {
+        return {
+          ...meta,
+          pubkey: newSigner,
+        };
+      }
+      return meta;
+    });
+
+    cloned.add(
+      new TransactionInstruction({
+        programId: ix.programId,
+        keys: updatedKeys,
+        data: ix.data,
+      })
+    );
+  }
+
+  return cloned;
+}
+
+/**
  * Signs and broadcasts an Actake Anchor Escrow transaction to Solana Devnet using:
  * 1. MWA on Android Chrome/Seeker & Wallet Standard (`solana:signAndSendTransaction` / `solana:signTransaction` + RPC proxy)
  * 2. Cross-Platform Ed25519 Browser Vault / Pollar receipt signer (local Ed25519 sign + live Devnet RPC broadcast when funded)
@@ -326,20 +440,24 @@ export async function signActakeTransaction(
   tx: Transaction,
   session: WalletSession
 ): Promise<SignedActakeTxResult> {
-  if (
-    session.connectionKind !== 'browser-vault' &&
-    session.connectionKind !== 'pollar' &&
-    activeStandardWallet &&
-    activeStandardAccount
-  ) {
-    const serialized = await tx.serialize({
+  if (session.connectionKind === 'wallet-standard' || session.connectionKind === 'mwa') {
+    const rehydrated = await rehydrateStandardWallet(session);
+    if (!rehydrated) {
+      throw new Error(
+        `Could not reconnect to ${session.walletName}. Open your wallet button in the top bar and reconnect ${session.walletName} before signing.`
+      );
+    }
+
+    const { wallet: stdWallet, account: stdAccount } = rehydrated;
+    const preparedTx = retargetTransactionSigner(tx, new PublicKey(stdAccount.address));
+    const serialized = await preparedTx.serialize({
       requireAllSignatures: false,
       verifySignatures: false,
     });
-    const signAndSend = activeStandardWallet.features['solana:signAndSendTransaction'] as
+    const signAndSend = stdWallet.features['solana:signAndSendTransaction'] as
       | SolanaSignAndSendFeature
       | undefined;
-    const signOnly = activeStandardWallet.features['solana:signTransaction'] as
+    const signOnly = stdWallet.features['solana:signTransaction'] as
       | SolanaSignTransactionFeature
       | undefined;
 
@@ -348,7 +466,7 @@ export async function signActakeTransaction(
       try {
         const [result] = await signAndSend.signAndSendTransaction({
           transaction: serialized,
-          account: activeStandardAccount,
+          account: stdAccount,
           chain: session.chain,
         });
         const sig = bs58.encode(result.signature);
@@ -371,7 +489,7 @@ export async function signActakeTransaction(
       try {
         const [result] = await signOnly.signTransaction({
           transaction: serialized,
-          account: activeStandardAccount,
+          account: stdAccount,
           chain: session.chain,
         });
         try {
@@ -397,14 +515,20 @@ export async function signActakeTransaction(
         throw err instanceof Error ? err : new Error('Wallet signing was rejected.');
       }
     }
+
+    throw new Error(
+      `${session.walletName} does not expose a Solana transaction signing method. Please switch wallets or reconnect.`
+    );
   }
 
   // Real local Ed25519 Transaction signature with @solana/web3.js Keypair
+  // Re-target signer cleanly so Pollar receipt memos or refreshed Browser Vault sessions never hit "unknown signer"
   const keypair = await getOrCreateBrowserVaultKeypair();
-  await tx.sign(keypair);
+  const localTx = retargetTransactionSigner(tx, keypair.publicKey);
+  await localTx.sign(keypair);
 
   try {
-    const rawSigned = await tx.serialize();
+    const rawSigned = await localTx.serialize();
     const broadcast = await broadcastSignedTransactionToDevnet(rawSigned);
     return {
       signature: broadcast.signature,
@@ -414,10 +538,12 @@ export async function signActakeTransaction(
     };
   } catch {
     // Graceful local-signed fallback when the Browser Vault has 0 Devnet SOL gas
-    const rawSig = tx.signature;
+    const rawSig = localTx.signature;
     const signature = rawSig
       ? bs58.encode(rawSig)
-      : bs58.encode(await sha256Bytes(`${session.publicKey}:${tx.recentBlockhash}:${Date.now()}`));
+      : bs58.encode(
+          await sha256Bytes(`${session.publicKey}:${localTx.recentBlockhash}:${Date.now()}`)
+        );
     return {
       signature,
       signedVia: session.walletName,

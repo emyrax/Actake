@@ -4,20 +4,17 @@ import {
   ArrowLeft,
   ArrowRight,
   Camera,
-  CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Flame,
   Fuel,
   HelpCircle,
   KeyRound,
-  Laptop,
   Loader2,
   Lock,
   Pause,
   Play,
   RefreshCw,
-  ShieldCheck,
-  Smartphone,
   Wallet,
   Zap,
 } from 'lucide-react';
@@ -27,9 +24,9 @@ import sunriseCommitmentImg from '../assets/images/auth_streak_sunrise_179579194
 import { DiscoveredWalletOption, PlatformCompatibility } from '../types/actake';
 import { BrandMark } from './BrandMark';
 import {
+  getWalletCapabilityLine,
   POLLAR_LOGO_SRC,
   SolflareMark,
-  UnifiedWalletList,
   WalletBrandIcon,
 } from './UnifiedWalletList';
 
@@ -79,7 +76,7 @@ const AUTH_SLIDES: AuthSlide[] = [
     chapter: '03 · Beat The Alarm',
     quote:
       'When real stakes meet a live alarm, snooze disappears and streaks become automatic.',
-    attribution: '— Non-Custodial Solana Devnet Escrow',
+    attribution: '— Non-Custodial Accountability Escrow',
   },
   {
     id: 'animated-accountability-loop',
@@ -98,15 +95,15 @@ const OPTION_COMPARISON = [
     title: 'Pollar Account',
     tag: 'Best for most users',
     detail:
-      'One-tap Email, Google, or Passkey login with built-in Pollar RAMP to deposit USDC/SOL directly — no browser extension needed.',
+      'Sign in with Email, Google, or Passkey and fund USDC/SOL directly with Pollar RAMP — no browser extension required.',
     setup: '~15 sec',
   },
   {
     id: 'solana',
     title: 'Solflare · Phantom · Seeker MWA',
-    tag: 'Best for Solana holders',
+    tag: 'Best for Solana wallets',
     detail:
-      'Connect your existing Solana wallet or Seeker Seed Vault via Mobile Wallet Adapter for direct self-custody SPL USDC & 0%-fee SKR.',
+      'Connect your existing Solana wallet or Seeker Seed Vault for direct self-custody SPL USDC and 0%-fee SKR staking.',
     setup: 'Instant',
   },
   {
@@ -114,7 +111,7 @@ const OPTION_COMPARISON = [
     title: 'Browser Devnet Vault',
     tag: 'Best for quick preview',
     detail:
-      'Generates a local Ed25519 keypair in your browser immediately so you can test alarms and AI camera verification before funding.',
+      'Creates a local Ed25519 keypair in your browser immediately so you can test alarms and AI check-ins before funding.',
     setup: '1 tap',
   },
 ];
@@ -124,19 +121,19 @@ const NAVIGATION_STEPS = [
     step: '01',
     icon: Wallet,
     title: 'Today Vault',
-    detail: 'Track live USDC & SOL totals, 24h fluctuation, and toggle USDC/SOL.',
+    detail: 'Monitor live USDC & SOL balances, 24h fluctuation, and toggle USDC/SOL.',
   },
   {
     step: '02',
     icon: Zap,
     title: 'Quick Stake or Missions',
-    detail: 'Expand Quick Actions for 1-tap presets or customize any daily alarm.',
+    detail: 'Expand Quick Actions for 1-tap presets or configure custom alarm rules.',
   },
   {
     step: '03',
     icon: Camera,
-    title: 'Verify & Inspect Receipts',
-    detail: 'Pass live camera proof at alarm time and audit fees in History.',
+    title: 'Verify & Claim',
+    detail: 'Pass live camera verification on time and inspect receipts in History.',
   },
 ];
 
@@ -180,14 +177,13 @@ const AnimatedAccountabilityReel: React.FC<{ compact?: boolean }> = ({ compact =
   return (
     <div
       className={`relative w-full h-full flex items-center justify-center ${
-        compact ? 'pb-48 pt-16 px-6' : 'pb-36 pt-16 px-8'
+        compact ? 'pb-48 pt-16 px-6' : 'pb-40 pt-16 px-8'
       }`}
     >
       <div className="relative flex flex-col items-center">
-        {/* Outer Rotating Orbital Ring */}
         <div
           className={`relative flex items-center justify-center ${
-            compact ? 'w-44 h-44' : 'w-56 h-56'
+            compact ? 'w-44 h-44' : 'w-56 h-56 xl:w-64 xl:h-64'
           }`}
         >
           <svg
@@ -200,7 +196,7 @@ const AnimatedAccountabilityReel: React.FC<{ compact?: boolean }> = ({ compact =
               cy="100"
               r="90"
               fill="none"
-              stroke="rgba(241, 106, 46, 0.28)"
+              stroke="rgba(241, 106, 46, 0.30)"
               strokeWidth="1.5"
               strokeDasharray="14 10"
             />
@@ -214,36 +210,34 @@ const AnimatedAccountabilityReel: React.FC<{ compact?: boolean }> = ({ compact =
             />
           </svg>
 
-          {/* Animated Scan Frame */}
           <div
             className={`relative overflow-hidden rounded-3xl bg-[#0D0E14]/85 backdrop-blur-md border border-white/15 flex flex-col items-center justify-center text-center shadow-[0_20px_50px_rgba(0,0,0,0.55)] ${
-              compact ? 'w-32 h-32 p-3' : 'w-40 h-40 p-4'
+              compact ? 'w-32 h-32 p-3' : 'w-40 h-40 xl:w-44 xl:h-44 p-5'
             }`}
           >
             <span
               aria-hidden="true"
               className="actake-scan-beam pointer-events-none absolute inset-x-3 h-[2px] bg-gradient-to-r from-transparent via-[#F16A2E] to-transparent"
             />
-            <span className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center mb-2">
+            <span className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center mb-2.5">
               <ActiveIcon className={`w-5 h-5 ${active.accent}`} />
             </span>
-            <div className="font-mono text-xs font-bold text-white tabular-nums">
+            <div className="font-mono text-sm font-bold text-white tabular-nums">
               {active.metric}
             </div>
-            <div className="text-[10px] text-white/65 mt-0.5 leading-tight">{active.label}</div>
+            <div className="text-[11px] text-white/65 mt-0.5 leading-tight">{active.label}</div>
           </div>
         </div>
 
-        {/* 7-Day Animated Streak Dots */}
-        <div className="mt-5 flex items-center gap-2">
+        <div className="mt-6 flex items-center gap-2">
           {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, idx) => {
             const lit = idx <= phase + 4;
             return (
               <span
                 key={`${day}-${idx}`}
-                className={`w-7 h-7 rounded-full text-[10px] font-mono font-bold flex items-center justify-center transition-all duration-300 ${
+                className={`w-8 h-8 rounded-full text-[11px] font-mono font-bold flex items-center justify-center transition-all duration-300 ${
                   lit
-                    ? 'bg-[#F16A2E] text-white shadow-[0_0_16px_rgba(241,106,46,0.55)]'
+                    ? 'bg-[#F16A2E] text-white shadow-[0_0_18px_rgba(241,106,46,0.55)]'
                     : 'bg-white/10 text-white/50 border border-white/10'
                 }`}
               >
@@ -259,7 +253,6 @@ const AnimatedAccountabilityReel: React.FC<{ compact?: boolean }> = ({ compact =
 
 export const AuthPage: React.FC<AuthPageProps> = ({
   wallets,
-  platform,
   connecting,
   error,
   onConnect,
@@ -268,6 +261,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const [slideIndex, setSlideIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [infoTab, setInfoTab] = useState<'best' | 'navigate'>('best');
+  const [guideExpanded, setGuideExpanded] = useState(false);
   const [mobileGuideOpen, setMobileGuideOpen] = useState(false);
 
   // Synced auto-advancing slideshow shared across Desktop & Mobile
@@ -305,8 +299,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     return wallets.filter((w) => w.id !== primaryWallet?.id);
   }, [wallets, primaryWallet]);
 
-  const DeviceIcon = platform.os === 'desktop' ? Laptop : Smartphone;
-
   const formatShortWalletLabel = (w: DiscoveredWalletOption): string => {
     if (w.kind === 'pollar') return 'Continue with Pollar';
     if (w.kind === 'mwa') return 'Continue with Seeker MWA';
@@ -314,19 +306,24 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     return `Continue with ${w.name}`;
   };
 
+  const formatDesktopWalletTitle = (w: DiscoveredWalletOption): string => {
+    if (w.kind === 'mwa') return 'Seeker / Android MWA';
+    if (w.kind === 'browser-vault') return 'Browser Devnet Vault';
+    if (w.kind === 'pollar') return 'Pollar Account';
+    return w.name;
+  };
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Sign in to Actake"
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#09090D] text-white"
+      className="fixed inset-0 z-50 overflow-y-auto bg-[#090A0E] text-white"
     >
       {/* =====================================================================
-          MOBILE VIEWPORT (< lg): Full-Bleed Cinematic Editorial Auth Screen
-          Inspired by Attachment 2 (full-bleed runner/focus slideshow + crisp
-          stacked pill sign-in buttons with Pollar & Solflare/Solana logos)
+          MOBILE VIEWPORT (< md): Full-Bleed Cinematic Editorial Auth Screen
       ===================================================================== */}
-      <div className="lg:hidden relative min-h-[100dvh] w-full flex flex-col justify-between overflow-hidden bg-[#090A0E]">
+      <div className="md:hidden relative min-h-[100dvh] w-full flex flex-col justify-between overflow-hidden bg-[#090A0E]">
         {/* Synced Full-Bleed Slideshow Backdrop */}
         <div className="absolute inset-0 z-0 overflow-hidden">
           {AUTH_SLIDES.map((slide, idx) => {
@@ -357,7 +354,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
             );
           })}
 
-          {/* Measured High-Contrast Scrim */}
           <div
             aria-hidden="true"
             className="absolute inset-0 bg-gradient-to-b from-[#090A0E]/65 via-[#090A0E]/30 to-[#090A0E]"
@@ -368,10 +364,13 @@ export const AuthPage: React.FC<AuthPageProps> = ({
           />
         </div>
 
-        {/* Mobile Top Utility Bar + Synced Slideshow Progress Indicators */}
+        {/* Mobile Top Bar + Synced Slideshow Progress Indicators */}
         <div className="relative z-20 px-4 pt-4 space-y-3">
-          {/* 4-Slide Tap-to-Switch Progress Bars */}
-          <div className="grid grid-cols-4 gap-1.5" role="tablist" aria-label="Accountability showcase slides">
+          <div
+            className="grid grid-cols-4 gap-1.5"
+            role="tablist"
+            aria-label="Accountability showcase slides"
+          >
             {AUTH_SLIDES.map((slide, idx) => {
               const isCurrent = idx === slideIndex;
               const isPast = idx < slideIndex;
@@ -419,15 +418,18 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               aria-label={paused ? 'Play slideshow' : 'Pause slideshow'}
               className="min-h-[40px] px-3 py-1.5 rounded-full bg-black/45 backdrop-blur-md border border-white/15 text-[11px] font-medium text-white/85 inline-flex items-center gap-1.5 whitespace-nowrap"
             >
-              {paused ? <Play className="w-3 h-3 text-[#F16A2E]" /> : <Pause className="w-3 h-3 text-[#F16A2E]" />}
+              {paused ? (
+                <Play className="w-3 h-3 text-[#F16A2E]" />
+              ) : (
+                <Pause className="w-3 h-3 text-[#F16A2E]" />
+              )}
               <span>{currentSlide.chapter}</span>
             </button>
           </div>
         </div>
 
-        {/* Mobile Lower Content: Centered Brand Wordmark, Slide Quote & Stacked Sign-In Pills */}
+        {/* Mobile Lower Content: Brand Mark, Quote & Stacked Sign-In Pills */}
         <div className="relative z-20 px-5 pb-7 pt-24 space-y-5">
-          {/* Centered Brand Mark & Editorial Consistency Quote */}
           <div className="text-center space-y-2.5 max-w-sm mx-auto">
             <div className="flex justify-center">
               <BrandMark inverted size="lg" />
@@ -448,7 +450,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
             </div>
           )}
 
-          {/* Stacked Signature Pill Sign-In Buttons (Synced Wallet List) */}
           <div className="space-y-2.5 max-w-md mx-auto w-full">
             {primaryWallet && (
               <button
@@ -498,13 +499,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({
             ))}
           </div>
 
-          {/* Mobile Expandable Best-Option & Navigation Guide */}
           <div className="max-w-md mx-auto w-full space-y-2.5">
             <button
               type="button"
               aria-expanded={mobileGuideOpen}
               onClick={() => setMobileGuideOpen((prev) => !prev)}
-              className="w-full min-h-[40px] px-4 py-2 rounded-2xl bg-white/[0.06] border border-white/10 text-xs font-semibold text-white/85 flex items-center justify-between gap-2"
+              className="w-full min-h-[42px] px-4 py-2 rounded-2xl bg-white/[0.06] border border-white/10 text-xs font-semibold text-white/85 flex items-center justify-between gap-2"
             >
               <span className="inline-flex items-center gap-1.5">
                 <HelpCircle className="w-3.5 h-3.5 text-[#F16A2E]" />
@@ -533,59 +533,70 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 <div className="pt-2.5 border-t border-white/10 flex items-start gap-2 text-[11px] text-white/65">
                   <Fuel className="w-3.5 h-3.5 text-[#4ADE80] shrink-0 mt-0.5" />
                   <span>
-                    Zero gas to sign in. Keep ~0.01 Devnet SOL for stake transactions or fund via
-                    Pollar RAMP inside Today.
+                    Keep a small Devnet SOL balance for gas or fund directly through Pollar RAMP
+                    after signing in.
                   </span>
                 </div>
               </div>
             )}
 
-            <p className="text-center text-[11px] text-white/50 leading-relaxed pt-1">
-              Sign-In With Solana (SIWS) on Devnet · Non-custodial escrow · Switch wallets anytime
+            <p className="text-center text-[11px] text-white/45 leading-relaxed pt-1">
+              Non-custodial escrow · Switch wallets anytime
             </p>
           </div>
         </div>
       </div>
 
       {/* =====================================================================
-          DESKTOP / LARGE SCREEN VIEWPORT (>= lg):
-          Premium Dark Obsidian SaaS Frame with Warm Orange Ambient Aura
-          Inspired directly by Attachment 3
+          TABLET, DESKTOP & LARGE SCREENS (>= md):
+          Full-Screen Edge-to-Edge Spacious Row Layout (justify-between)
+          Clean standard SaaS header & footer, zero clutter, generous separation
       ===================================================================== */}
-      <div className="hidden lg:flex min-h-screen w-full actake-auth-glow-stage items-center justify-center p-6 xl:p-10">
-        <div className="w-full max-w-[1180px] rounded-[30px] bg-[#0E0F14]/96 border border-white/12 shadow-[0_32px_90px_rgba(0,0,0,0.72)] overflow-hidden flex flex-col">
-          {/* Outer Shell Header */}
-          <header className="px-7 xl:px-8 h-16 border-b border-white/8 flex items-center justify-between gap-6">
+      <div className="hidden md:flex flex-col justify-between min-h-screen w-full actake-auth-glow-stage">
+        {/* Standard Full-Width Top Navigation Bar */}
+        <header className="w-full px-6 md:px-10 lg:px-14 xl:px-20 h-20 flex items-center justify-between gap-6 border-b border-white/[0.07] bg-[#0B0C10]/75 backdrop-blur-md shrink-0">
+          <button
+            type="button"
+            onClick={onBack}
+            disabled={connecting}
+            className="inline-flex items-center rounded-xl cursor-pointer disabled:opacity-50"
+            aria-label="Actake Home"
+          >
+            <BrandMark inverted size="md" />
+          </button>
+
+          <div className="flex items-center gap-3 lg:gap-5">
+            <button
+              type="button"
+              onClick={() => setGuideExpanded((prev) => !prev)}
+              className="min-h-[40px] px-4 py-2 rounded-full text-xs font-semibold text-white/75 hover:text-white hover:bg-white/[0.07] inline-flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+            >
+              <HelpCircle className="w-4 h-4 text-[#F16A2E]" />
+              <span>{guideExpanded ? 'Hide guide' : 'Sign-in guide'}</span>
+            </button>
+
             <button
               type="button"
               onClick={onBack}
-              className="inline-flex items-center cursor-pointer"
-              aria-label="Return to Actake overview"
+              disabled={connecting}
+              className="min-h-[42px] pl-1.5 pr-4 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] border border-white/12 text-xs font-semibold text-white inline-flex items-center gap-2.5 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50"
             >
-              <BrandMark inverted size="md" />
+              <span className="w-7 h-7 rounded-full bg-[#F16A2E] text-white flex items-center justify-center shrink-0">
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </span>
+              <span>Back to Home</span>
             </button>
+          </div>
+        </header>
 
-            <div className="flex items-center gap-5 text-xs text-white/70">
-              <span className="inline-flex items-center gap-1.5 font-medium">
-                <DeviceIcon className="w-3.5 h-3.5 text-[#F16A2E]" />
-                <span className="capitalize">
-                  {platform.os} · {platform.browser}
-                </span>
-              </span>
-              <span aria-hidden="true" className="text-white/25">
-                ·
-              </span>
-              <span className="inline-flex items-center gap-1.5 font-medium text-white/90">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#4ADE80]" />
-                <span>Solana Devnet · Zero-Gas SIWS</span>
-              </span>
-            </div>
-          </header>
-
-          {/* Main 2-Column Editorial Split */}
-          <div className="grid grid-cols-12 gap-7 xl:gap-9 p-7 xl:p-8 items-stretch">
-            {/* LEFT PANEL (col-span-6): Cinematic Consistency & Accountability Slideshow + Animated Loop */}
-            <div className="col-span-6 relative rounded-[24px] overflow-hidden bg-[#14151C] border border-white/10 min-h-[620px] flex flex-col justify-between">
+        {/* Full-Screen Spacious Two-Column Row with Generous Space Between */}
+        <main className="flex-1 w-full px-6 md:px-10 lg:px-14 xl:px-20 py-8 lg:py-12 flex flex-row items-stretch justify-between gap-8 lg:gap-14 xl:gap-20">
+          {/* LEFT COLUMN: Full-Height Consistency & Accountability Slideshow */}
+          <section
+            aria-label="Accountability showcase"
+            className="w-[45%] lg:w-[46%] xl:w-[45%] flex flex-col shrink-0"
+          >
+            <div className="relative flex-1 min-h-[540px] lg:min-h-[600px] rounded-[28px] overflow-hidden bg-[#12131A] border border-white/12 shadow-[0_28px_80px_rgba(0,0,0,0.58)] flex flex-col justify-between">
               {/* Synced 4-Slide Visual Canvas */}
               <div className="absolute inset-0 z-0 overflow-hidden">
                 {AUTH_SLIDES.map((slide, idx) => {
@@ -616,23 +627,23 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                   );
                 })}
 
-                {/* Editorial Contrast Scrim */}
                 <div
                   aria-hidden="true"
-                  className="absolute inset-0 bg-gradient-to-t from-[#09090D] via-[#09090D]/35 to-[#09090D]/30"
+                  className="absolute inset-0 bg-gradient-to-t from-[#09090D] via-[#09090D]/30 to-[#09090D]/40"
                 />
               </div>
 
-              {/* Top Overlay Row inside Left Visual Card */}
-              <div className="relative z-10 p-5 flex items-center justify-between gap-3">
+              {/* Subtle Top Row inside Showcase */}
+              <div className="relative z-10 px-6 pt-6 lg:px-8 lg:pt-8 flex items-center justify-between gap-3">
                 <span className="text-xs font-mono font-semibold text-white/80 tracking-wide">
                   {currentSlide.chapter}
                 </span>
+
                 <button
                   type="button"
                   onClick={() => setPaused((p) => !p)}
                   aria-label={paused ? 'Resume showcase slideshow' : 'Pause showcase slideshow'}
-                  className="min-h-[34px] px-3 py-1 rounded-full bg-black/45 hover:bg-black/65 backdrop-blur-md border border-white/15 text-[11px] font-semibold text-white/85 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="min-h-[34px] px-3.5 py-1.5 rounded-full bg-black/45 hover:bg-black/65 backdrop-blur-md border border-white/15 text-xs font-semibold text-white/90 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   {paused ? (
                     <>
@@ -642,26 +653,25 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                   ) : (
                     <>
                       <Pause className="w-3 h-3 text-[#F16A2E]" />
-                      <span>Auto</span>
+                      <span>Pause</span>
                     </>
                   )}
                 </button>
               </div>
 
-              {/* Bottom Editorial Quote + 4 Animated Progress Bars (Matching Attachment 3) */}
-              <div className="relative z-10 p-6 xl:p-7 space-y-5">
-                <div className="space-y-2.5">
-                  <blockquote className="font-display text-2xl xl:text-[26px] font-bold text-white leading-[1.24] tracking-tight text-balance">
+              {/* Bottom Editorial Quote + 4 Interactive Progress Bars */}
+              <div className="relative z-10 px-6 pb-6 lg:px-9 lg:pb-9 space-y-6">
+                <div className="space-y-3 max-w-xl">
+                  <blockquote className="font-display text-xl lg:text-2xl xl:text-[30px] font-bold text-white leading-[1.24] tracking-tight text-balance">
                     &ldquo;{currentSlide.quote}&rdquo;
                   </blockquote>
-                  <div className="text-right text-xs font-mono text-white/65">
+                  <div className="text-xs lg:text-sm font-mono text-white/65">
                     {currentSlide.attribution}
                   </div>
                 </div>
 
-                {/* 4 Horizontal Slide Progress Bars */}
                 <div
-                  className="grid grid-cols-4 gap-2.5"
+                  className="grid grid-cols-4 gap-3"
                   role="tablist"
                   aria-label="Accountability slideshow navigation"
                 >
@@ -698,220 +708,274 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </div>
               </div>
             </div>
+          </section>
 
-            {/* RIGHT PANEL (col-span-6): Premium Dark SaaS Sign-In Form & Helpful Guidance */}
-            <div className="col-span-6 flex flex-col justify-between gap-5 py-1">
-              <div className="space-y-5">
-                {/* Back to Home Pill (Direct nod to Attachment 3's orange-arrow Back button) */}
-                <div>
-                  <button
-                    type="button"
-                    onClick={onBack}
-                    disabled={connecting}
-                    className="min-h-[38px] pl-1.5 pr-4 py-1 rounded-full bg-white/10 hover:bg-white/16 border border-white/10 text-[11px] font-bold uppercase tracking-[0.08em] text-white/90 inline-flex items-center gap-2.5 transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    <span className="w-7 h-7 rounded-full bg-[#F16A2E] text-white flex items-center justify-center shrink-0">
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                    </span>
-                    <span>Back to Home</span>
-                  </button>
-                </div>
-
-                {/* Title & Value Subtitle */}
-                <div className="space-y-1.5">
-                  <h1
-                    id="actake-auth-heading"
-                    className="font-display text-3xl xl:text-[34px] font-extrabold text-white tracking-tight leading-tight"
-                  >
-                    Welcome Back
-                  </h1>
-                  <p className="text-sm text-white/65 leading-relaxed">
-                    Sign in to your Actake accountability vault to stake USDC or 0%-fee SKR, track
-                    live balances, and verify daily alarms.
-                  </p>
-                </div>
-
-                {/* Flagship Primary Orange CTA (Recommended Sign-In with Real Pollar Logo) */}
-                {primaryWallet && (
-                  <button
-                    type="button"
-                    disabled={connecting || !primaryWallet.available}
-                    onClick={() => onConnect(primaryWallet.id)}
-                    className="w-full min-h-[52px] px-5 py-3 rounded-2xl bg-[#F16A2E] hover:bg-[#E05920] disabled:opacity-60 text-white text-sm font-bold shadow-[0_14px_34px_rgba(241,106,46,0.32)] flex items-center justify-between gap-3 transition-colors cursor-pointer"
-                  >
-                    <span className="flex items-center gap-3 min-w-0">
-                      {primaryWallet.kind === 'pollar' ? (
-                        <img
-                          src={POLLAR_LOGO_SRC}
-                          alt=""
-                          referrerPolicy="no-referrer"
-                          className="w-7 h-7 rounded-lg object-contain bg-[#0C1324] p-0.5 shrink-0"
-                        />
-                      ) : (
-                        <WalletBrandIcon option={primaryWallet} size="sm" theme="dark" />
-                      )}
-                      <span className="truncate">
-                        {connecting ? 'Connecting...' : formatShortWalletLabel(primaryWallet)}
-                      </span>
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-white/95 whitespace-nowrap shrink-0">
-                      <span>Recommended</span>
-                      {connecting ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <ArrowRight className="w-4 h-4" />
-                      )}
-                    </span>
-                  </button>
-                )}
-
-                {error && (
-                  <div
-                    role="alert"
-                    className="rounded-2xl bg-red-950/70 border border-red-500/40 px-4 py-3 flex items-start gap-2.5 text-xs text-red-200"
-                  >
-                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                    <div className="min-w-0">
-                      <div className="font-bold text-red-100">Sign-in did not complete</div>
-                      <p className="mt-0.5 leading-relaxed">{error}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Subtle Divider */}
-                <div className="flex items-center gap-3 text-[11px] font-medium text-white/40">
-                  <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
-                  <span>all synced Solana sign-in options</span>
-                  <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
-                </div>
-
-                {/* Unified Synced Wallet List (Dark Mode Variant) */}
-                <UnifiedWalletList
-                  wallets={wallets}
-                  mode="connect"
-                  busy={connecting}
-                  theme="dark"
-                  onSelect={(id) => onConnect(id)}
-                />
+          {/* RIGHT COLUMN: Spacious Full-Width Auth Workspace (Aligned in Clean Rows) */}
+          <section
+            aria-label="Sign in options"
+            className="flex-1 min-w-0 flex flex-col justify-center py-2 lg:py-4"
+          >
+            <div className="w-full space-y-7 lg:space-y-8">
+              {/* Heading Row */}
+              <div className="space-y-3">
+                <h1 className="font-display text-3xl lg:text-4xl xl:text-[44px] font-extrabold text-white tracking-tight leading-[1.08]">
+                  Welcome back
+                </h1>
+                <p className="text-sm lg:text-[15.5px] text-white/65 leading-relaxed max-w-xl">
+                  Sign in to your Actake vault to lock daily accountability stakes, monitor live
+                  USDC &amp; SOL balances, and verify your streak with live camera proof.
+                </p>
               </div>
 
-              {/* Helpful Guidance & Navigation Tabs (Best Choice vs How to Navigate) */}
-              <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 space-y-3.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-black/40 border border-white/8">
-                    <button
-                      type="button"
-                      onClick={() => setInfoTab('best')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
-                        infoTab === 'best'
-                          ? 'bg-white/14 text-white'
-                          : 'text-white/55 hover:text-white'
-                      }`}
-                    >
-                      Which option is best?
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setInfoTab('navigate')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
-                        infoTab === 'navigate'
-                          ? 'bg-white/14 text-white'
-                          : 'text-white/55 hover:text-white'
-                      }`}
-                    >
-                      How to navigate
-                    </button>
+              {/* Error Banner */}
+              {error && (
+                <div
+                  role="alert"
+                  className="rounded-2xl bg-red-950/75 border border-red-500/40 px-5 py-4 flex items-start gap-3 text-xs text-red-200"
+                >
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <div className="font-bold text-red-100">Sign-in did not complete</div>
+                    <p className="mt-1 leading-relaxed">{error}</p>
                   </div>
-                  <span className="text-[11px] font-mono text-white/45 whitespace-nowrap">
-                    Switch anytime
-                  </span>
                 </div>
+              )}
 
-                {infoTab === 'best' ? (
-                  <div className="divide-y divide-white/8">
-                    {OPTION_COMPARISON.map((row) => (
-                      <div
-                        key={row.id}
-                        className="py-2.5 first:pt-0 last:pb-0 flex items-start justify-between gap-3"
-                      >
-                        <div className="flex items-start gap-2.5 min-w-0">
-                          {row.id === 'pollar' ? (
-                            <img
-                              src={POLLAR_LOGO_SRC}
-                              alt=""
-                              referrerPolicy="no-referrer"
-                              className="w-5 h-5 rounded-md object-contain bg-[#0C1324] p-0.5 shrink-0 mt-0.5"
-                            />
-                          ) : row.id === 'solana' ? (
-                            <SolflareMark className="w-5 h-5 shrink-0 mt-0.5" />
-                          ) : (
-                            <KeyRound className="w-4 h-4 text-[#34D399] shrink-0 mt-1" />
-                          )}
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-baseline gap-x-2">
-                              <span className="text-xs font-bold text-white">{row.title}</span>
-                              <span className="text-[11px] font-semibold text-[#F16A2E]">
-                                {row.tag}
-                              </span>
-                            </div>
-                            <p className="text-[11.5px] text-white/60 mt-0.5 leading-relaxed">
-                              {row.detail}
-                            </p>
+              {/* Flagship Recommended Sign-In Row (Pollar) */}
+              {primaryWallet && (
+                <button
+                  type="button"
+                  disabled={connecting || !primaryWallet.available}
+                  onClick={() => onConnect(primaryWallet.id)}
+                  className="w-full min-h-[68px] px-6 py-4 rounded-2xl bg-[#F16A2E] hover:bg-[#E05920] disabled:opacity-60 text-white shadow-[0_18px_42px_rgba(241,106,46,0.30)] flex flex-wrap items-center justify-between gap-4 transition-colors cursor-pointer"
+                >
+                  <span className="flex items-center gap-4 min-w-0 text-left">
+                    {primaryWallet.kind === 'pollar' ? (
+                      <img
+                        src={POLLAR_LOGO_SRC}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        className="w-10 h-10 rounded-xl object-contain bg-[#0C1324] p-1 shrink-0 border border-white/15"
+                      />
+                    ) : (
+                      <WalletBrandIcon option={primaryWallet} size="md" theme="dark" />
+                    )}
+                    <span className="min-w-0">
+                      <span className="block text-base font-bold leading-snug truncate">
+                        {connecting ? 'Connecting...' : formatShortWalletLabel(primaryWallet)}
+                      </span>
+                      <span className="block text-xs text-white/85 mt-0.5 truncate">
+                        {getWalletCapabilityLine(primaryWallet)}
+                      </span>
+                    </span>
+                  </span>
+
+                  <span className="inline-flex items-center gap-2 text-xs font-bold text-white whitespace-nowrap shrink-0">
+                    <span>Recommended</span>
+                    {connecting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ArrowRight className="w-4 h-4" />
+                    )}
+                  </span>
+                </button>
+              )}
+
+              {/* Clean Horizontal Divider */}
+              <div className="flex items-center gap-4 text-xs text-white/40">
+                <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
+                <span className="whitespace-nowrap">or connect another wallet</span>
+                <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
+              </div>
+
+              {/* Spacious Responsive Row Grid of Secondary Wallets (Synced Icons, Zero Duplication) */}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {secondaryWallets.map((w) => {
+                  const isDisabled = !w.available || connecting;
+                  return (
+                    <button
+                      key={w.id}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => onConnect(w.id)}
+                      className={`group w-full min-h-[84px] p-4 rounded-2xl border text-left transition-all flex items-center justify-between gap-4 ${
+                        !w.available
+                          ? 'bg-white/[0.03] border-white/[0.08] opacity-55 cursor-not-allowed'
+                          : 'bg-white/[0.05] hover:bg-white/[0.09] border-white/12 hover:border-[#F16A2E]/75 cursor-pointer disabled:opacity-60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <WalletBrandIcon option={w} size="md" theme="dark" />
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-white leading-snug truncate">
+                            {formatDesktopWalletTitle(w)}
+                          </div>
+                          <div className="text-xs text-white/55 mt-0.5 leading-snug line-clamp-2">
+                            {getWalletCapabilityLine(w)}
                           </div>
                         </div>
-                        <span className="text-[11px] font-mono text-white/45 tabular-nums whitespace-nowrap shrink-0">
-                          {row.setup}
-                        </span>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {NAVIGATION_STEPS.map((item) => {
-                        const Icon = item.icon;
-                        return (
+
+                      <div className="shrink-0">
+                        {!w.available ? (
+                          <span className="text-[11px] font-medium text-white/45 whitespace-nowrap">
+                            Android only
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-bold text-white/85 group-hover:text-[#F16A2E] transition-colors whitespace-nowrap">
+                            <span>
+                              {w.kind === 'mwa'
+                                ? 'Pair'
+                                : w.kind === 'browser-vault'
+                                  ? 'Start'
+                                  : 'Connect'}
+                            </span>
+                            <ChevronRight className="w-4 h-4 text-white/45 group-hover:text-[#F16A2E] group-hover:translate-x-0.5 transition-all" />
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Spacious Collapsible Best-Option & Navigation Guide */}
+              <div className="rounded-2xl bg-white/[0.03] border border-white/10 overflow-hidden">
+                <button
+                  type="button"
+                  aria-expanded={guideExpanded}
+                  onClick={() => setGuideExpanded((prev) => !prev)}
+                  className="w-full min-h-[54px] px-5 py-3.5 flex items-center justify-between gap-4 text-left hover:bg-white/[0.04] transition-colors cursor-pointer"
+                >
+                  <span className="inline-flex items-center gap-2.5 text-xs font-semibold text-white/90 min-w-0">
+                    <HelpCircle className="w-4 h-4 text-[#F16A2E] shrink-0" />
+                    <span className="truncate">
+                      Which sign-in option is best &amp; how to navigate Actake
+                    </span>
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-white/55 shrink-0 transition-transform duration-200 ${
+                      guideExpanded ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+
+                {guideExpanded && (
+                  <div className="border-t border-white/10 p-5 space-y-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-black/40 border border-white/8">
+                        <button
+                          type="button"
+                          onClick={() => setInfoTab('best')}
+                          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                            infoTab === 'best'
+                              ? 'bg-white/14 text-white'
+                              : 'text-white/55 hover:text-white'
+                          }`}
+                        >
+                          Which option is best?
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInfoTab('navigate')}
+                          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                            infoTab === 'navigate'
+                              ? 'bg-white/14 text-white'
+                              : 'text-white/55 hover:text-white'
+                          }`}
+                        >
+                          How to navigate
+                        </button>
+                      </div>
+                      <span className="inline-flex items-center gap-1.5 text-xs text-white/55">
+                        <RefreshCw className="w-3.5 h-3.5 text-[#F16A2E]" />
+                        <span>Switch wallet anytime</span>
+                      </span>
+                    </div>
+
+                    {infoTab === 'best' ? (
+                      <div className="divide-y divide-white/8">
+                        {OPTION_COMPARISON.map((row) => (
                           <div
-                            key={item.step}
-                            className="rounded-xl bg-black/30 border border-white/8 p-3 space-y-1.5"
+                            key={row.id}
+                            className="py-3.5 first:pt-0 last:pb-0 flex items-start justify-between gap-4"
                           >
-                            <div className="flex items-center justify-between">
-                              <Icon className="w-4 h-4 text-[#F16A2E]" />
-                              <span className="font-mono text-[10px] font-bold text-white/40 tabular-nums">
-                                {item.step}
-                              </span>
+                            <div className="flex items-start gap-3 min-w-0">
+                              {row.id === 'pollar' ? (
+                                <img
+                                  src={POLLAR_LOGO_SRC}
+                                  alt=""
+                                  referrerPolicy="no-referrer"
+                                  className="w-6 h-6 rounded-md object-contain bg-[#0C1324] p-0.5 shrink-0 mt-0.5"
+                                />
+                              ) : row.id === 'solana' ? (
+                                <SolflareMark className="w-5 h-5 shrink-0 mt-0.5" />
+                              ) : (
+                                <KeyRound className="w-4 h-4 text-[#34D399] shrink-0 mt-1" />
+                              )}
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                  <span className="text-xs font-bold text-white">{row.title}</span>
+                                  <span className="text-[11px] font-semibold text-[#F16A2E]">
+                                    {row.tag}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-white/60 mt-1 leading-relaxed">
+                                  {row.detail}
+                                </p>
+                              </div>
                             </div>
-                            <div className="text-xs font-bold text-white">{item.title}</div>
-                            <p className="text-[11px] text-white/60 leading-snug">{item.detail}</p>
+                            <span className="text-[11px] font-mono text-white/45 tabular-nums whitespace-nowrap shrink-0">
+                              {row.setup}
+                            </span>
                           </div>
-                        );
-                      })}
-                    </div>
-                    <div className="flex items-center justify-between gap-3 text-[11px] text-white/60 pt-0.5">
-                      <span className="inline-flex items-center gap-1.5">
-                        <Fuel className="w-3.5 h-3.5 text-[#4ADE80] shrink-0" />
-                        <span>Keep ~0.01 Devnet SOL for gas, or fund via Pollar RAMP</span>
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
-                        <RefreshCw className="w-3 h-3 text-[#F16A2E]" />
-                        <span>Switch wallet in top bar</span>
-                      </span>
-                    </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
+                          {NAVIGATION_STEPS.map((item) => {
+                            const Icon = item.icon;
+                            return (
+                              <div
+                                key={item.step}
+                                className="rounded-xl bg-black/30 border border-white/8 p-4 space-y-2"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <Icon className="w-4 h-4 text-[#F16A2E]" />
+                                  <span className="font-mono text-[10px] font-bold text-white/40 tabular-nums">
+                                    {item.step}
+                                  </span>
+                                </div>
+                                <div className="text-xs font-bold text-white">{item.title}</div>
+                                <p className="text-[11.5px] text-white/60 leading-relaxed">
+                                  {item.detail}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-white/60 pt-1">
+                          <Fuel className="w-3.5 h-3.5 text-[#4ADE80] shrink-0" />
+                          <span>
+                            Keep ~0.01 Devnet SOL for gas, or fund USDC/SOL directly through Pollar
+                            RAMP after signing in.
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </div>
-          </div>
+          </section>
+        </main>
 
-          {/* Subtle Bottom Bar inside SaaS Frame */}
-          <footer className="px-7 xl:px-8 py-3.5 border-t border-white/8 flex items-center justify-between gap-4 text-[11px] text-white/45">
-            <span>Actake — Social Accountability &amp; Streak Escrow on Solana Devnet</span>
-            <span className="inline-flex items-center gap-2">
-              <CheckCircle2 className="w-3.5 h-3.5 text-[#4ADE80]" />
-              <span>Non-Custodial · Explorer Receipts · iOS, Android &amp; Desktop</span>
-            </span>
-          </footer>
-        </div>
+        {/* Clean Standard Full-Width Footer */}
+        <footer className="w-full px-6 md:px-10 lg:px-14 xl:px-20 py-5 border-t border-white/[0.07] bg-[#0B0C10]/65 flex flex-wrap items-center justify-between gap-4 text-xs text-white/45 shrink-0">
+          <span>© {new Date().getFullYear()} Actake. All rights reserved.</span>
+          <span>Non-custodial accountability escrow · Switch wallets anytime</span>
+        </footer>
       </div>
     </div>
   );

@@ -678,7 +678,19 @@ export default function App() {
       let explorerUrl: string | undefined;
       let paidVia: 'pollar' | 'solana-tx' = 'solana-tx';
 
-      if (wallet.connectionKind === 'pollar' && pollar.configured && pollar.isAuthenticated) {
+      if (wallet.connectionKind === 'pollar') {
+        if (!pollar.configured) {
+          throw new Error(
+            'Pollar API key (VITE_POLLAR_API_KEY) is not configured for this deployment.'
+          );
+        }
+        if (!pollar.isAuthenticated) {
+          awaitingPollarLoginRef.current = true;
+          pollar.openLoginModal();
+          throw new Error(
+            'Your Pollar session needs to be refreshed. Complete the Pollar sign-in prompt and submit your stake again.'
+          );
+        }
         if (!depositTarget.safeForRealTokens) {
           throw new Error(
             'Set ACTAKE_ESCROW_WALLET (public Solana address) in your environment variables before sending real Pollar stake deposits.'
