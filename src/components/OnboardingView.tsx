@@ -1,17 +1,22 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
+  Camera,
   Check,
   CheckCircle2,
   ChevronRight,
   Flame,
+  Lock,
   ShieldCheck,
   Smartphone,
+  Sparkles,
+  Trophy,
   Wallet,
 } from 'lucide-react';
 import { DiscoveredWalletOption, PlatformCompatibility } from '../types/actake';
 import { BrandMark } from './BrandMark';
-import { EscrowVault3D } from './EscrowVault3D';
+import { MascotDisplay } from './MascotDisplay';
+import { ErrorStateCard, SparklineSvg } from './UiPrimitives';
 
 interface OnboardingViewProps {
   wallets: DiscoveredWalletOption[];
@@ -27,6 +32,27 @@ const PREVIEW_DAYS = [
   { label: 'Tue', num: 24, done: true, today: false },
   { label: 'Wed', num: 25, done: false, today: true },
   { label: 'Thu', num: 26, done: false, today: false },
+];
+
+const HOW_IT_WORKS = [
+  {
+    step: '01',
+    title: 'Lock USDC or 0%-Fee SKR',
+    detail: 'Commit to a daily alarm deadline inside a Solana Devnet escrow pool.',
+    icon: Lock,
+  },
+  {
+    step: '02',
+    title: 'Beat the Live AI Alarm',
+    detail: 'Verify with a randomized live camera target before your cutoff expires.',
+    icon: Camera,
+  },
+  {
+    step: '03',
+    title: 'Claim Principal + Slashed Split',
+    detail: 'Keep your full stake and automatically share missed-deadline pots.',
+    icon: Trophy,
+  },
 ];
 
 export const OnboardingView: React.FC<OnboardingViewProps> = ({
@@ -90,39 +116,52 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
     }
   };
 
+  const renderWalletIcon = (kind: DiscoveredWalletOption['kind']) => {
+    if (kind === 'pollar') return Sparkles;
+    if (kind === 'mwa') return Smartphone;
+    if (kind === 'wallet-standard') return Wallet;
+    return ShieldCheck;
+  };
+
   return (
     <div className="min-h-screen actake-canvas text-[#111114] flex flex-col">
       {/* Clean Top Bar */}
-      <header className="w-full max-w-6xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
+      <header className="w-full max-w-6xl mx-auto px-4 sm:px-8 h-16 flex items-center justify-between gap-4">
         <BrandMark size="md" />
-        <div className="text-xs font-semibold text-[#6B6663] whitespace-nowrap">
-          Solana Devnet · Pollar · MWA
+        <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#6B6663] whitespace-nowrap">
+          <ShieldCheck className="w-3.5 h-3.5 text-[#16A34A]" />
+          <span>Solana Devnet · Pollar · MWA</span>
         </div>
       </header>
 
-      <main className="flex-1 w-full max-w-6xl mx-auto px-5 sm:px-8 py-6 lg:py-10 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
-        {/* Left Column: Warm Editorial Hero, Wallet Selector, Swipe-to-Connect */}
-        <div className="lg:col-span-6 space-y-6">
+      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-8 py-5 lg:py-9 grid grid-cols-1 lg:grid-cols-12 gap-7 lg:gap-10 items-start lg:items-center">
+        {/* Left Column: Hero, Wallet Selector, Primary Connect CTA */}
+        <div className="lg:col-span-6 space-y-5">
           <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <img
-                src="/assets/aistudio/Gemini_Generated_Image_eh2x1teh2x1teh2x_c3446dad.jpg"
+            <div className="flex items-center gap-3.5">
+              <MascotDisplay
+                variant="medallion"
+                size="lg"
+                floating
                 alt="Actake Accountability Mascot"
-                referrerPolicy="no-referrer"
-                className="w-12 h-12 rounded-2xl object-cover shadow-sm"
               />
-              <div className="text-xs font-semibold text-[#6B6663]">
-                Stake to verify deadlines · Join accountability communities
+              <div className="space-y-0.5 min-w-0">
+                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#F16A2E]">
+                  Actake Guardian
+                </div>
+                <div className="text-xs font-semibold text-[#5E5854]">
+                  Stake to verify deadlines · Split missed-habit pots
+                </div>
               </div>
             </div>
 
-            <h1 className="font-display text-4xl sm:text-5xl font-extrabold tracking-tight leading-[1.06] text-[#111114]">
+            <h1 className="font-display text-3xl sm:text-5xl font-extrabold tracking-tight leading-[1.06] text-[#111114]">
               Build Better Routines{' '}
               <span className="text-[#F16A2E]">by Staking.</span>
             </h1>
-            <p className="text-base text-[#5E5854] leading-relaxed max-w-xl">
+            <p className="text-sm sm:text-base text-[#5E5854] leading-relaxed max-w-xl">
               Lock USDC or 0%-fee SKR behind daily deadlines. When your alarm rings, complete a
-              randomized live camera check-in to protect your streak and split the slashed pot.
+              randomized live camera check-in to protect your streak and earn from the slashed pot.
             </p>
           </div>
 
@@ -143,25 +182,37 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
             <div className="space-y-2">
               {wallets.map((w) => {
                 const isSelected = w.id === selectedWalletId;
+                const WalletIcon = renderWalletIcon(w.kind);
                 return (
                   <button
                     key={w.id}
                     type="button"
                     disabled={!w.available}
                     onClick={() => setSelectedWalletId(w.id)}
-                    className={`w-full text-left rounded-2xl p-3.5 border transition-colors flex items-start justify-between gap-3 ${
+                    className={`w-full min-h-[56px] text-left rounded-2xl p-3.5 border transition-colors flex items-center justify-between gap-3 ${
                       !w.available
                         ? 'bg-[#FFF8F4] border-[#F4EAE3] opacity-60 cursor-not-allowed'
                         : isSelected
-                          ? 'bg-[#FFF3EC] border-[#F16A2E]'
-                          : 'bg-white border-[#F2E8E1] hover:border-[#E5CFC2]'
+                          ? 'bg-[#FFF3EC] border-[#F16A2E] shadow-xs'
+                          : 'bg-white border-[#EFE3DB] hover:border-[#DFC6B7]'
                     }`}
                   >
-                    <div className="min-w-0">
-                      <div className="text-sm font-bold text-[#111114] truncate">{w.name}</div>
-                      <p className="text-xs text-[#6B6663] mt-0.5 leading-snug">{w.description}</p>
+                    <div className="flex items-start gap-3 min-w-0">
+                      <span
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                          isSelected && w.available
+                            ? 'bg-[#F16A2E] text-white'
+                            : 'bg-[#FFF4EE] text-[#F16A2E]'
+                        }`}
+                      >
+                        <WalletIcon className="w-4 h-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-[#111114] truncate">{w.name}</div>
+                        <p className="text-xs text-[#6B6663] mt-0.5 leading-snug">{w.description}</p>
+                      </div>
                     </div>
-                    <div className="shrink-0 mt-0.5">
+                    <div className="shrink-0">
                       {isSelected && w.available ? (
                         <CheckCircle2 className="w-5 h-5 text-[#F16A2E]" />
                       ) : (
@@ -177,20 +228,28 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
           </div>
 
           {error && (
-            <div
-              role="alert"
-              className="rounded-2xl bg-[#FEF2F2] border border-[#FECACA] px-4 py-3 text-xs text-[#991B1B]"
-            >
-              {error}
-            </div>
+            <ErrorStateCard
+              title="Wallet sign-in did not complete"
+              message={error}
+              onRetry={triggerConnect}
+              retryLabel="Try Again"
+            />
           )}
 
-          {/* Tactile Swipe-to-Connect Bar */}
+          {/* Tactile Swipe-or-Tap Connect CTA */}
           <div className="space-y-2.5">
             <div
               ref={trackRef}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  triggerConnect();
+                }
+              }}
               onClick={triggerConnect}
-              className="relative h-14 w-full rounded-full bg-[#111114] p-1.5 flex items-center cursor-pointer select-none shadow-[0_12px_28px_rgba(17,17,20,0.22)] overflow-hidden"
+              className="relative h-14 w-full rounded-full bg-[#111114] hover:bg-[#1C1C22] p-1.5 flex items-center cursor-pointer select-none shadow-[0_12px_28px_rgba(17,17,20,0.22)] overflow-hidden transition-colors"
             >
               <div
                 className="absolute inset-y-0 left-0 bg-[#F16A2E]/35 transition-all duration-75"
@@ -214,7 +273,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
               </div>
 
               <div className="flex-1 text-center pr-8 text-sm sm:text-base font-bold text-white tracking-tight flex items-center justify-center gap-1.5">
-                <span>
+                <span className="truncate">
                   {connecting
                     ? 'Signing In...'
                     : selectedWallet?.kind === 'pollar'
@@ -222,7 +281,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
                       : `Swipe or Tap to Connect ${selectedWallet?.kind === 'mwa' ? 'Seeker MWA' : 'Wallet'}`}
                 </span>
                 {!connecting && (
-                  <span className="inline-flex items-center opacity-80" aria-hidden="true">
+                  <span className="inline-flex items-center opacity-80 shrink-0" aria-hidden="true">
                     <ChevronRight className="w-4 h-4 -mr-2" />
                     <ChevronRight className="w-4 h-4 -mr-2" />
                     <ChevronRight className="w-4 h-4" />
@@ -238,39 +297,45 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Smartphone className="w-3.5 h-3.5 text-[#6B6663]" />
-                Pollar · Android MWA · Vault
+                Pollar · Android MWA · Local Vault
               </span>
             </div>
           </div>
         </div>
 
-        {/* Right Column: Mini Daily Challenge Preview Card + 3D Escrow Vault */}
+        {/* Right Column: Daily Challenge Preview + Native How-It-Works & Payout Split Card */}
         <div className="lg:col-span-6 space-y-5">
           {/* Compact Daily Challenge & 5-Day Streak Strip Preview */}
           <div className="actake-card p-5 space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0 space-y-1.5">
                 <div className="text-xs font-bold text-[#F16A2E] inline-flex items-center gap-1">
                   <Flame className="w-3.5 h-3.5" />
                   <span>Daily Challenge · 06:00 AM Cutoff</span>
                 </div>
-                <div className="font-display text-lg font-extrabold text-[#111114] mt-0.5">
+                <div className="font-display text-lg font-extrabold text-[#111114] leading-snug">
                   7AM Campus Wake Club · $185 Pot
                 </div>
-              </div>
-              <div className="flex items-center -space-x-2 shrink-0">
-                {['AL', 'SA', 'NI'].map((i) => (
-                  <span
-                    key={i}
-                    className="w-7 h-7 rounded-full bg-[#111114] text-white text-[10px] font-bold flex items-center justify-center border-2 border-white"
-                  >
-                    {i}
+                <div className="flex items-center -space-x-2 pt-0.5">
+                  {['AL', 'SA', 'NI'].map((i) => (
+                    <span
+                      key={i}
+                      className="w-7 h-7 rounded-full bg-[#111114] text-white text-[10px] font-bold flex items-center justify-center border-2 border-white"
+                    >
+                      {i}
+                    </span>
+                  ))}
+                  <span className="w-7 h-7 rounded-full bg-[#FFE3D5] text-[#F16A2E] text-[10px] font-bold flex items-center justify-center border-2 border-white tabular-nums">
+                    +42
                   </span>
-                ))}
-                <span className="w-7 h-7 rounded-full bg-[#FFE3D5] text-[#F16A2E] text-[10px] font-bold flex items-center justify-center border-2 border-white">
-                  +42
-                </span>
+                </div>
               </div>
+              <MascotDisplay
+                variant="stage"
+                size="lg"
+                floating
+                alt="Actake Daily Challenge Mascot"
+              />
             </div>
 
             <div className="grid grid-cols-5 gap-2">
@@ -283,7 +348,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
                 >
                   <span className="text-[10px] font-semibold opacity-80">{d.label}</span>
                   <span
-                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold tabular-nums ${
                       d.today
                         ? 'bg-white text-[#111114]'
                         : d.done
@@ -298,12 +363,76 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
             </div>
           </div>
 
-          <EscrowVault3D
-            vaultState="locked"
-            totalLockedUsd={185}
-            activeStakesCount={2}
-            className="h-[290px] sm:h-[340px] w-full rounded-[28px]"
-          />
+          {/* High-Craft Accountability Escrow & Payout Preview Card (Replaces 3D Vault) */}
+          <div className="rounded-[28px] bg-[#141416] text-white p-6 space-y-5 shadow-[0_18px_40px_rgba(17,17,20,0.18)] relative overflow-hidden">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -top-20 -right-16 w-48 h-48 rounded-full actake-orb-glow opacity-25 blur-2xl"
+            />
+
+            <div className="relative z-10 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#F16A2E]">
+                  How Escrow Accountability Works
+                </div>
+                <h2 className="font-display text-xl font-extrabold text-white mt-1">
+                  3 Steps to Protect Your Streak
+                </h2>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-white/10 text-[11px] font-mono font-semibold text-[#4ADE80] whitespace-nowrap">
+                0% Fee on SKR
+              </span>
+            </div>
+
+            <div className="relative z-10 space-y-2.5">
+              {HOW_IT_WORKS.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div
+                    key={item.step}
+                    className="rounded-2xl bg-white/[0.06] border border-white/10 p-3.5 flex items-start gap-3"
+                  >
+                    <span className="w-9 h-9 rounded-xl bg-[#F16A2E]/20 text-[#F16A2E] flex items-center justify-center shrink-0">
+                      <Icon className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] font-bold text-white/45">
+                          {item.step}
+                        </span>
+                        <span className="text-xs font-bold text-white">{item.title}</span>
+                      </div>
+                      <p className="text-[11px] text-white/70 mt-0.5 leading-relaxed">
+                        {item.detail}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="relative z-10 rounded-2xl bg-white/[0.05] border border-white/10 p-4 flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <div className="text-[11px] text-white/60 font-semibold">
+                  Sample 7-Day Pool Return
+                </div>
+                <div className="font-display text-lg font-extrabold text-white tabular-nums">
+                  $10.00 <span className="text-[#4ADE80]">→ $12.50</span>
+                </div>
+                <div className="text-[11px] text-white/55">
+                  Principal + avg slashed split from missed check-ins
+                </div>
+              </div>
+              <div className="w-28 shrink-0">
+                <SparklineSvg
+                  values={[10, 10.4, 10.9, 11.2, 11.7, 12.1, 12.5]}
+                  stroke="#4ADE80"
+                  fillFrom="rgba(74, 222, 128, 0.28)"
+                  className="w-full h-11"
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>

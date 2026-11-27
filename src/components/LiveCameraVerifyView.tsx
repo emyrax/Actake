@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   Camera,
   Check,
-  Loader2,
   RefreshCw,
   ShieldAlert,
   Volume2,
@@ -12,6 +11,7 @@ import {
 } from 'lucide-react';
 import { RandomizedTargetPrompt, StakeCommitment, VerificationResult } from '../types/actake';
 import { BrandMark } from './BrandMark';
+import { MascotLoader } from './MascotDisplay';
 
 interface LiveCameraVerifyViewProps {
   stake: StakeCommitment;
@@ -281,9 +281,13 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
                   className="w-full h-full object-cover"
                 />
                 {!cameraReady && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-[#181E25]/80 text-white text-xs gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Starting live camera...</span>
+                  <div className="absolute inset-0 flex items-center justify-center bg-[#181E25]/88 p-6">
+                    <MascotLoader
+                      size="lg"
+                      theme="dark"
+                      title="Starting Live Camera..."
+                      subtitle="Initializing hardware viewfinder for live anti-cheat proof"
+                    />
                   </div>
                 )}
               </>
@@ -307,16 +311,21 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
 
             {/* Verifying Overlay */}
             {(verifying || signingEscrow) && (
-              <div className="absolute inset-0 bg-black/72 flex flex-col items-center justify-center text-white p-6 text-center gap-3">
-                <Loader2 className="w-10 h-10 text-[#EC6B3F] animate-spin" />
-                <div className="font-display text-lg font-bold">
-                  {signingEscrow
-                    ? 'Signing actake_escrow::submit_checkin...'
-                    : 'Verifying Live Proof with Gemini Vision...'}
-                </div>
-                <div className="text-xs text-white/75">
-                  Checking 3D authenticity &amp; matching against &ldquo;{challenge.itemName}&rdquo;
-                </div>
+              <div className="absolute inset-0 bg-[#111114]/86 flex items-center justify-center p-6">
+                <MascotLoader
+                  size="xl"
+                  theme="dark"
+                  title={
+                    signingEscrow
+                      ? 'Signing Escrow Check-In...'
+                      : 'Verifying Live Proof...'
+                  }
+                  subtitle={
+                    signingEscrow
+                      ? 'Submitting actake_escrow::submit_checkin on Solana Devnet'
+                      : `Checking 3D authenticity & matching against "${challenge.itemName}"`
+                  }
+                />
               </div>
             )}
           </div>

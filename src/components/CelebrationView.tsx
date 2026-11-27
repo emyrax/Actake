@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { CelebrationReceipt } from '../types/actake';
 import { BrandMark } from './BrandMark';
+import { MascotDisplay } from './MascotDisplay';
 
 interface CelebrationViewProps {
   receipt: CelebrationReceipt;
@@ -147,20 +148,20 @@ export const CelebrationView: React.FC<CelebrationViewProps> = ({
           </div>
         </div>
 
-        {/* Mascot Badge */}
-        <div className="flex items-center gap-3">
-          <img
-            src="/assets/aistudio/Gemini_Generated_Image_eh2x1teh2x1teh2x_c3446dad.jpg"
+        {/* Mascot Trophy Showcase */}
+        <div className="w-full rounded-3xl bg-white/10 border border-white/20 px-5 py-4 flex items-center gap-4">
+          <MascotDisplay
+            variant="celebration"
+            size="xl"
+            floating
             alt="Actake Verified Shield Mascot"
-            referrerPolicy="no-referrer"
-            className="w-16 h-16 rounded-2xl object-cover border-2 border-white/30"
           />
-          <div className="text-left">
-            <div className="text-sm font-bold flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-[#86EFAC]" />
+          <div className="text-left space-y-1 min-w-0">
+            <div className="font-display text-base font-extrabold flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-[#86EFAC] shrink-0" />
               <span>Escrow Unlocked on Solana</span>
             </div>
-            <div className="text-xs text-white/80">
+            <div className="text-xs text-white/85 leading-relaxed">
               {receipt.claimed
                 ? 'Payout settled directly to your connected wallet.'
                 : 'Tap below to sign actake_escrow::claim_payout.'}

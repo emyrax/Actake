@@ -18,7 +18,7 @@ export function ensureMwaRegistered(): boolean {
       appIdentity: {
         name: 'Actake',
         uri: window.location.origin,
-        icon: 'assets/aistudio/Gemini_Generated_Image_eh2x1teh2x1teh2x_c3446dad.jpg',
+        icon: 'assets/aistudio/image-removebg-preview__1__38d6ac67.png',
       },
       chains: ['solana:devnet', 'solana:mainnet'],
     });

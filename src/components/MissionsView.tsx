@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
+  AlertCircle,
   ArrowLeft,
   BedDouble,
   BookOpen,
+  Calendar,
   Clock,
   Coffee,
   Dumbbell,
@@ -23,6 +25,8 @@ import { deriveEscrowPoolPda, TOKEN_CONFIGS } from '../solana/actakeEscrow';
 import { useActakePollar } from '../context/ActakePollarProvider';
 import { formatClockTime12h } from '../utils/timeUtils';
 import { ExploreHabitPreset } from './SquadsView';
+import { MascotDisplay } from './MascotDisplay';
+import { ErrorStateCard } from './UiPrimitives';
 
 interface MissionsViewProps {
   wallet: WalletSession;
@@ -88,6 +92,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
     initialPreset?.categoryId || categories[0]?.id || 'morning_wakeup'
   );
   const [amount, setAmount] = useState<number>(initialPreset?.amount ?? 10);
+  const [amountError, setAmountError] = useState<string | null>(null);
   const [token, setToken] = useState<TokenType>(initialPreset?.token ?? 'USDC');
   const [alarmHour, setAlarmHour] = useState<number>(initialPreset?.alarmHour ?? 6);
   const [alarmMinute, setAlarmMinute] = useState<number>(initialPreset?.alarmMinute ?? 30);
@@ -100,6 +105,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
   const [customModalOpen, setCustomModalOpen] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customHint, setCustomHint] = useState('');
+  const [customError, setCustomError] = useState<string | null>(null);
   const [stakeError, setStakeError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -136,8 +142,23 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
   const clockDisplay = formatClockTime12h(alarmHour, alarmMinute);
   const tokenCfg = TOKEN_CONFIGS[token];
 
+  const handleAmountChange = (val: number) => {
+    setAmount(val);
+    if (!Number.isFinite(val) || val < 1) {
+      setAmountError('Minimum stake amount is $1.');
+    } else if (val > 500) {
+      setAmountError('Maximum single Devnet stake is $500.');
+    } else {
+      setAmountError(null);
+    }
+  };
+
   const handleLockStake = async () => {
     setStakeError(null);
+    if (!Number.isFinite(amount) || amount < 1 || amount > 500) {
+      setAmountError('Enter a valid stake between $1 and $500.');
+      return;
+    }
     try {
       await onCreateStake({
         category: selectedCategory,
@@ -156,7 +177,10 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
   const handleSaveCustomCategory = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedName = customName.trim();
-    if (!trimmedName) return;
+    if (trimmedName.length < 2) {
+      setCustomError('Enter a habit name with at least 2 characters.');
+      return;
+    }
     const newCat: HabitCategory = {
       id: `custom_${Date.now()}`,
       name: trimmedName,
@@ -170,6 +194,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
     setSelectedCategoryId(newCat.id);
     setCustomName('');
     setCustomHint('');
+    setCustomError(null);
     setCustomModalOpen(false);
   };
 
@@ -180,51 +205,89 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
     <div className="space-y-6 pb-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div className="space-y-1">
-          <button
-            type="button"
-            onClick={() => onNavigateTab('home')}
-            className="text-xs font-semibold text-[#6B6663] hover:text-[#111114] inline-flex items-center gap-1"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back to Today</span>
-          </button>
-          <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-[#111114] tracking-tight">
-            Create Habit <span className="text-[#F16A2E]">&amp; Dedication Stake</span>
-          </h1>
-          <p className="text-sm text-[#6B6663]">
-            Pick your habit, deadline, motivation note, and stake—the exact AI verification target
-            stays randomized until your alarm rings.
-          </p>
+        <div className="flex items-start gap-4 min-w-0">
+          <MascotDisplay
+            variant="medallion"
+            size="md"
+            floating
+            alt="Actake Stake Creator Mascot"
+          />
+          <div className="space-y-1 min-w-0">
+            <button
+              type="button"
+              onClick={() => onNavigateTab('home')}
+              className="min-h-[36px] text-xs font-semibold text-[#6B6663] hover:text-[#111114] inline-flex items-center gap-1"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Today</span>
+            </button>
+            <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-[#111114] tracking-tight">
+              Create Habit <span className="text-[#F16A2E]">&amp; Dedication Stake</span>
+            </h1>
+            <p className="text-sm text-[#6B6663]">
+              Pick your habit, deadline, and stake—the exact AI verification target stays
+              randomized until your alarm rings.
+            </p>
+          </div>
         </div>
 
-        <div className="inline-flex items-center p-1 rounded-full bg-white shadow-[0_4px_14px_rgba(24,20,18,0.05)] self-start">
+        <div className="inline-flex items-center p-1 rounded-full bg-white border border-[#EFE2D9] shadow-[0_4px_14px_rgba(24,20,18,0.04)] self-start">
           <button
             type="button"
-            className="px-4 py-1.5 rounded-full bg-[#111114] text-white text-xs font-bold whitespace-nowrap"
+            className="min-h-[38px] px-4 py-1.5 rounded-full bg-[#111114] text-white text-xs font-bold whitespace-nowrap"
           >
             Solo Stake
           </button>
           <button
             type="button"
             onClick={() => onNavigateTab('hunts')}
-            className="px-4 py-1.5 rounded-full text-[#6B6663] hover:text-[#111114] text-xs font-bold whitespace-nowrap"
+            className="min-h-[38px] px-4 py-1.5 rounded-full text-[#6B6663] hover:text-[#111114] text-xs font-bold whitespace-nowrap"
           >
             GPS Hunt
           </button>
           <button
             type="button"
             onClick={() => onNavigateTab('squads')}
-            className="px-4 py-1.5 rounded-full text-[#6B6663] hover:text-[#111114] text-xs font-bold whitespace-nowrap"
+            className="min-h-[38px] px-4 py-1.5 rounded-full text-[#6B6663] hover:text-[#111114] text-xs font-bold whitespace-nowrap"
           >
             Community
           </button>
         </div>
       </div>
 
+      {/* Compact 4-Step Guided Summary Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        {[
+          { num: '1', label: 'Habit', value: selectedCategory.name, icon: Sparkles },
+          { num: '2', label: 'Cadence', value: frequencyLabel, icon: Calendar },
+          { num: '3', label: 'Deadline', value: clockDisplay.full, icon: Clock },
+          { num: '4', label: 'Stake', value: `$${Number.isFinite(amount) ? amount : 0} ${token}`, icon: Wallet },
+        ].map((step) => {
+          const Icon = step.icon;
+          return (
+            <div
+              key={step.num}
+              className="rounded-2xl bg-white border border-[#EFE2D9] px-3.5 py-2.5 flex items-center gap-2.5 min-w-0"
+            >
+              <span className="w-8 h-8 rounded-xl bg-[#FFF3EC] text-[#F16A2E] flex items-center justify-center shrink-0">
+                <Icon className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#877F7A]">
+                  {step.num}. {step.label}
+                </div>
+                <div className="text-xs font-bold text-[#111114] truncate tabular-nums">
+                  {step.value}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Main 2-Column Guided Flow */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left: Step 1 Category + Step 3 Motivation Notes */}
+        {/* Left: Step 1 Category + Step 2 Frequency & Motivation */}
         <div className="lg:col-span-7 space-y-5">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -233,8 +296,11 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
               </h2>
               <button
                 type="button"
-                onClick={() => setCustomModalOpen(true)}
-                className="text-xs font-bold text-[#F16A2E] hover:text-[#D5551B] inline-flex items-center gap-1 whitespace-nowrap"
+                onClick={() => {
+                  setCustomError(null);
+                  setCustomModalOpen(true);
+                }}
+                className="min-h-[40px] px-3 rounded-full text-xs font-bold text-[#F16A2E] hover:bg-[#FFF0E6] inline-flex items-center gap-1 whitespace-nowrap transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Create Your Own</span>
@@ -249,10 +315,10 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                     key={cat.id}
                     type="button"
                     onClick={() => setSelectedCategoryId(cat.id)}
-                    className={`text-left rounded-[24px] p-4 transition-all flex flex-col justify-between min-h-[124px] ${
+                    className={`text-left rounded-[24px] p-4 transition-all flex flex-col justify-between min-h-[124px] border ${
                       active
-                        ? 'bg-[#111114] text-white shadow-[0_12px_26px_rgba(17,17,20,0.18)]'
-                        : 'bg-white text-[#111114] shadow-[0_6px_18px_rgba(24,20,18,0.05)] hover:bg-[#FFF9F5]'
+                        ? 'bg-[#111114] border-[#111114] text-white shadow-[0_12px_26px_rgba(17,17,20,0.18)]'
+                        : 'bg-white border-[#EFE2D9] text-[#111114] hover:border-[#DFC4B4] hover:bg-[#FFF9F5]'
                     }`}
                   >
                     <div
@@ -281,16 +347,16 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
           {/* Step 2: Frequency & Motivation Note */}
           <div className="actake-card p-5 space-y-4">
             <div>
-              <label className="block font-display text-sm font-extrabold text-[#111114] mb-2">
+              <div className="font-display text-sm font-extrabold text-[#111114] mb-2.5">
                 2. Frequency &amp; Motivation Note
-              </label>
+              </div>
               <div className="flex flex-wrap gap-2">
                 {FREQUENCIES.map((freq) => (
                   <button
                     key={freq}
                     type="button"
                     onClick={() => setFrequencyLabel(freq)}
-                    className={`min-h-[36px] px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                    className={`min-h-[42px] px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${
                       frequencyLabel === freq
                         ? 'bg-[#F16A2E] text-white'
                         : 'bg-[#FFF4EE] text-[#111114] hover:bg-[#FFE5D6]'
@@ -303,15 +369,19 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#6B6663] mb-1.5">
+              <label
+                htmlFor="motivation-note-input"
+                className="block text-xs font-semibold text-[#6B6663] mb-1.5"
+              >
                 Why does this habit matter to you? (Optional)
               </label>
               <input
+                id="motivation-note-input"
                 type="text"
                 value={motivationNote}
                 onChange={(e) => setMotivationNote(e.target.value)}
                 placeholder="Type a short note to remind yourself when the alarm rings..."
-                className="w-full rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-4 py-3 text-sm text-[#111114] placeholder:text-[#9A938E] focus:outline-none focus:border-[#F16A2E]"
+                className="w-full min-h-[46px] rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-4 py-3 text-sm text-[#111114] placeholder:text-[#9A938E] focus:outline-none focus:border-[#F16A2E]"
               />
             </div>
           </div>
@@ -321,7 +391,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
         <div className="lg:col-span-5 actake-card p-6 space-y-5">
           {/* Deadline Reminder Clock */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="font-display text-sm font-extrabold text-[#111114] inline-flex items-center gap-1.5">
                 <Clock className="w-4 h-4 text-[#F16A2E]" />
                 3. Deadline Reminder
@@ -329,14 +399,14 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
               <button
                 type="button"
                 onClick={setOneMinuteFromNow}
-                className="text-xs font-bold text-[#16A34A] hover:underline whitespace-nowrap"
+                className="min-h-[36px] px-2.5 rounded-full text-xs font-bold text-[#16A34A] hover:bg-[#ECFDF5] whitespace-nowrap transition-colors"
               >
                 +1 min (Live Test)
               </button>
             </div>
 
             <div className="flex items-center gap-4 rounded-2xl bg-[#FFF8F4] border border-[#F4E6DD] p-4">
-              <svg viewBox="0 0 100 100" className="w-20 h-20 shrink-0">
+              <svg viewBox="0 0 100 100" className="w-20 h-20 shrink-0" aria-hidden="true">
                 <circle cx="50" cy="50" r="46" fill="#FFFFFF" stroke="#F1D8C8" strokeWidth="3" />
                 {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((deg) => (
                   <line
@@ -373,7 +443,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                 <circle cx="50" cy="50" r="3.5" fill="#111114" />
               </svg>
 
-              <div className="flex-1 space-y-2">
+              <div className="flex-1 space-y-2 min-w-0">
                 <div className="font-mono text-2xl font-extrabold text-[#111114] tabular-nums">
                   {clockDisplay.full}
                 </div>
@@ -388,7 +458,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                       setAlarmMinute(m);
                     }
                   }}
-                  className="w-full rounded-xl bg-white border border-[#ECDAD0] px-3 py-1.5 text-xs font-mono text-[#111114] focus:outline-none focus:border-[#F16A2E]"
+                  className="w-full min-h-[40px] rounded-xl bg-white border border-[#ECDAD0] px-3 py-1.5 text-xs font-mono text-[#111114] focus:outline-none focus:border-[#F16A2E]"
                 />
               </div>
             </div>
@@ -409,7 +479,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                       setAlarmHour(p.h);
                       setAlarmMinute(p.m);
                     }}
-                    className={`py-2 rounded-full text-xs font-mono font-bold transition-colors ${
+                    className={`min-h-[40px] py-2 rounded-full text-xs font-mono font-bold transition-colors ${
                       isActive
                         ? 'bg-[#111114] text-white'
                         : 'bg-[#FFF4EE] text-[#6B6663] hover:text-[#111114]'
@@ -442,7 +512,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                 role="switch"
                 aria-checked={token === 'SKR'}
                 onClick={() => setToken((t) => (t === 'USDC' ? 'SKR' : 'USDC'))}
-                className="flex items-center gap-2 text-xs font-bold text-[#111114] whitespace-nowrap"
+                className="min-h-[40px] flex items-center gap-2 text-xs font-bold text-[#111114] whitespace-nowrap"
               >
                 <span>Use $SKR</span>
                 <span
@@ -460,8 +530,8 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                 <button
                   key={val}
                   type="button"
-                  onClick={() => setAmount(val)}
-                  className={`min-h-[42px] rounded-full text-xs font-mono font-bold transition-colors ${
+                  onClick={() => handleAmountChange(val)}
+                  className={`min-h-[44px] rounded-full text-xs font-mono font-bold transition-colors ${
                     amount === val
                       ? 'bg-[#F16A2E] text-white'
                       : 'bg-[#FFF4EE] text-[#111114] hover:bg-[#FFE5D6]'
@@ -471,6 +541,29 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                 </button>
               ))}
             </div>
+
+            <div className="flex items-center gap-2">
+              <label htmlFor="custom-stake-amount" className="text-xs font-semibold text-[#6B6663] whitespace-nowrap">
+                Custom ($1–$500)
+              </label>
+              <input
+                id="custom-stake-amount"
+                type="number"
+                min={1}
+                max={500}
+                step={1}
+                value={amount}
+                onChange={(e) => handleAmountChange(Number(e.target.value))}
+                className="flex-1 min-h-[42px] rounded-xl bg-[#FFF8F4] border border-[#F2E3DA] px-3 py-1.5 font-mono text-sm font-bold text-[#111114] focus:outline-none focus:border-[#F16A2E]"
+              />
+            </div>
+
+            {amountError && (
+              <div className="text-xs text-[#DC2626] font-medium flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{amountError}</span>
+              </div>
+            )}
           </div>
 
           {/* Escrow & Pollar Payment Breakdown */}
@@ -511,13 +604,13 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                 </div>
               </div>
             )}
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-2">
               <span className="text-[#6B6663]">Instruction</span>
-              <span className="font-mono font-semibold text-[#111114]">
+              <span className="font-mono font-semibold text-[#111114] truncate">
                 {isPollarPaying ? 'pollar::sendPayment(SOLANA)' : 'actake_escrow::join_pool'}
               </span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-2">
               <span className="text-[#6B6663]">Protocol Fee</span>
               <span
                 className={`font-bold tabular-nums ${
@@ -527,7 +620,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                 {tokenCfg.protocolFeePct === 0 ? '0% (SKR Perk)' : `${tokenCfg.protocolFeePct}%`}
               </span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-2">
               <span className="text-[#6B6663]">Escrow PDA</span>
               <span className="font-mono text-[#111114]">
                 {derivedPda ? `${derivedPda.slice(0, 8)}...${derivedPda.slice(-6)}` : 'Deriving...'}
@@ -536,13 +629,18 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
           </div>
 
           {stakeError && (
-            <div className="rounded-2xl bg-[#FEF2F2] border border-[#FECACA] px-3.5 py-2.5 text-xs text-[#991B1B] space-y-2">
-              <div>{stakeError}</div>
+            <div className="space-y-2">
+              <ErrorStateCard
+                title="Stake transaction did not complete"
+                message={stakeError}
+                onRetry={() => void handleLockStake()}
+                retryLabel="Retry Stake"
+              />
               {isPollarPaying && (
                 <button
                   type="button"
                   onClick={onOpenPollarFund}
-                  className="px-3 py-1.5 rounded-full bg-[#F16A2E] text-white text-[11px] font-bold hover:bg-[#DC5A20] transition-colors"
+                  className="w-full min-h-[42px] px-4 py-2 rounded-full bg-[#F16A2E] text-white text-xs font-bold hover:bg-[#DC5A20] transition-colors"
                 >
                   Fund Wallet with Pollar
                 </button>
@@ -552,8 +650,8 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
 
           <button
             type="button"
-            disabled={submitting}
-            onClick={handleLockStake}
+            disabled={submitting || Boolean(amountError)}
+            onClick={() => void handleLockStake()}
             className="w-full min-h-[52px] px-5 py-3 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-60 shadow-sm"
           >
             <Wallet className="w-4 h-4" />
@@ -563,8 +661,8 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                   ? 'Submitting Payment via Pollar...'
                   : 'Signing join_pool on Devnet...'
                 : isPollarPaying
-                  ? `Pay & Lock $${amount.toFixed(2)} ${token} via Pollar`
-                  : `Save & Lock $${amount.toFixed(2)} ${token}`}
+                  ? `Pay & Lock $${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} ${token} via Pollar`
+                  : `Save & Lock $${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} ${token}`}
             </span>
           </button>
         </div>
@@ -572,39 +670,51 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
 
       {/* Create Custom Category Modal */}
       {customModalOpen && (
-        <div className="fixed inset-0 z-50 bg-[#111114]/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-[28px] bg-white p-6 space-y-4 shadow-2xl">
+        <div
+          onClick={() => setCustomModalOpen(false)}
+          className="fixed inset-0 z-50 bg-[#111114]/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-t-[28px] sm:rounded-[28px] bg-white p-6 space-y-4 shadow-2xl"
+          >
             <div className="flex items-center justify-between">
               <h3 className="font-display text-lg font-extrabold text-[#111114]">
                 Create Custom Habit Category
               </h3>
               <button
                 type="button"
+                aria-label="Close custom habit modal"
                 onClick={() => setCustomModalOpen(false)}
-                className="w-9 h-9 rounded-full bg-[#FFF4EE] flex items-center justify-center text-[#111114]"
+                className="w-11 h-11 rounded-full bg-[#FFF4EE] hover:bg-[#FFE5D6] flex items-center justify-center text-[#111114] transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
             <form onSubmit={handleSaveCustomCategory} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-[#111114] mb-1">
+                <label htmlFor="custom-habit-name" className="block text-xs font-semibold text-[#111114] mb-1">
                   Habit Name
                 </label>
                 <input
+                  id="custom-habit-name"
                   type="text"
                   required
                   value={customName}
-                  onChange={(e) => setCustomName(e.target.value)}
+                  onChange={(e) => {
+                    setCustomError(null);
+                    setCustomName(e.target.value);
+                  }}
                   placeholder="e.g., Piano Practice or Cold Plunge"
-                  className="w-full rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-4 py-2.5 text-sm focus:outline-none focus:border-[#F16A2E]"
+                  className="w-full min-h-[46px] rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-4 py-2.5 text-sm focus:outline-none focus:border-[#F16A2E]"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-[#111114] mb-1">
+                <label htmlFor="custom-habit-hint" className="block text-xs font-semibold text-[#111114] mb-1">
                   Environment Hint (for AI Item &amp; Action Randomizer)
                 </label>
                 <textarea
+                  id="custom-habit-hint"
                   rows={3}
                   value={customHint}
                   onChange={(e) => setCustomHint(e.target.value)}
@@ -612,17 +722,23 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                   className="w-full rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-4 py-2.5 text-sm focus:outline-none focus:border-[#F16A2E]"
                 />
               </div>
+              {customError && (
+                <div className="text-xs text-[#DC2626] font-medium flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{customError}</span>
+                </div>
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setCustomModalOpen(false)}
-                  className="px-4 py-2 rounded-full text-sm font-medium text-[#6B6663] hover:bg-[#FFF4EE]"
+                  className="min-h-[44px] px-4 py-2 rounded-full text-sm font-medium text-[#6B6663] hover:bg-[#FFF4EE]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-full bg-[#F16A2E] text-white text-sm font-bold hover:bg-[#DC5A20]"
+                  className="min-h-[44px] px-5 py-2.5 rounded-full bg-[#F16A2E] text-white text-sm font-bold hover:bg-[#DC5A20]"
                 >
                   Save Habit
                 </button>

@@ -29,6 +29,8 @@ import {
   fetchLatestDevnetBlockhash,
 } from '../solana/actakeEscrow';
 import { shortenAddress, signActakeTransaction } from '../solana/walletManager';
+import { MascotDisplay } from './MascotDisplay';
+import { EmptyState, ErrorStateCard, LobbyLayoutSkeleton } from './UiPrimitives';
 
 interface LobbyPool {
   id: string;
@@ -124,7 +126,7 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
   }, [poolId]);
 
   useEffect(() => {
-    loadLobby();
+    void loadLobby();
   }, [loadLobby]);
 
   const alreadyJoined = Boolean(
@@ -255,7 +257,7 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
       environmentHint: pool.environmentHint,
       amount: pool.stakeAmount,
       token: pool.tokenSymbol,
-      protocolFeePct: pool.tokenSymbol === 'SKR' ? 0 : 2.5,
+      protocolFeePct: pool.tokenSymbol === 'SKR' ? 0 : 1.5,
       alarmHour: pool.alarmHour,
       alarmMinute: pool.alarmMinute,
       alarmSound: 'siren',
@@ -271,26 +273,35 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
   };
 
   if (loading) {
-    return (
-      <div className="py-16 flex flex-col items-center justify-center gap-3 text-sm text-[#5E6470]">
-        <Loader2 className="w-6 h-6 animate-spin text-[#E86F48]" />
-        <span>Loading squad lobby &amp; Solana Blink metadata...</span>
-      </div>
-    );
+    return <LobbyLayoutSkeleton />;
   }
 
   if (!pool) {
     return (
-      <div className="actake-card p-8 text-center space-y-4">
-        <h2 className="font-display text-xl font-bold text-[#111114]">Squad Pool Not Found</h2>
-        <p className="text-sm text-[#5E6470]">{error || 'This pool link may have expired.'}</p>
+      <div className="space-y-4">
         <button
           type="button"
           onClick={onBack}
-          className="min-h-[44px] px-5 py-2.5 rounded-2xl bg-[#141416] text-white text-sm font-semibold"
+          className="min-h-[44px] px-4 py-2 rounded-full bg-white border border-[#EFE2D9] text-xs font-bold text-[#111114] hover:bg-[#FFF9F5] inline-flex items-center gap-2 transition-colors"
         >
-          Return to Actake
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to Explore</span>
         </button>
+        {error && (
+          <ErrorStateCard
+            title="Could not load squad lobby"
+            message={error}
+            onRetry={() => void loadLobby()}
+            retryLabel="Retry Lobby"
+          />
+        )}
+        <EmptyState
+          showMascot
+          title="Squad Pool Not Found"
+          description="This pool link may have expired or does not exist on Devnet yet."
+          ctaLabel="Return to Community Pools"
+          onCta={onBack}
+        />
       </div>
     );
   }
@@ -304,52 +315,60 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
         <button
           type="button"
           onClick={onBack}
-          className="min-h-[40px] px-3.5 py-2 rounded-xl bg-white border border-[#E6E6EC] text-xs font-semibold text-[#111114] hover:bg-[#F1F1F5] inline-flex items-center gap-2 transition-colors"
+          className="min-h-[44px] px-4 py-2 rounded-full bg-white border border-[#EFE2D9] text-xs font-bold text-[#111114] hover:bg-[#FFF9F5] inline-flex items-center gap-2 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Squads</span>
+          <span>Back to Explore</span>
         </button>
 
-        <div className="text-xs font-mono text-[#5E6470]">/squad/{pool.id}</div>
+        <div className="text-xs font-mono text-[#6B6663] truncate">/squad/{pool.id}</div>
       </div>
 
-      {/* Obsidian Squad Hero Banner with Metallic Orb Glow */}
-      <section className="relative overflow-hidden rounded-[28px] bg-[#141416] text-white p-6 sm:p-8 shadow-[0_12px_32px_rgba(17,17,20,0.16)]">
+      {/* Obsidian Squad Hero Banner */}
+      <section className="relative overflow-hidden rounded-[28px] bg-[#141416] text-white p-6 sm:p-8 shadow-[0_14px_34px_rgba(17,17,20,0.18)]">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full actake-orb-glow opacity-35 blur-2xl"
+          className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full actake-orb-glow opacity-30 blur-2xl"
         />
 
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-          <div className="space-y-3">
-            <div className="text-xs font-medium text-white/70">
-              Solana Squad Lobby · Daily {deadlineLabel} Cutoff · {pool.totalDays}-Day Pool
-            </div>
-            <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight">
-              {pool.title}
-            </h1>
-            <div className="flex flex-wrap items-center gap-3 text-sm tabular-nums text-white/85">
-              <span className="font-semibold text-[#22C55E]">
-                ${pool.totalStaked.toFixed(2)} {pool.tokenSymbol} Pot
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>${pool.stakeAmount} Entry Stake</span>
-              <span aria-hidden="true">·</span>
-              <span className="text-[#FCA5A5]">${pool.slashedPotAvailable} Slashed Bonus</span>
-              <span aria-hidden="true">·</span>
-              <span>{pool.participantCount} Members</span>
-            </div>
-            <div className="text-xs font-mono text-white/55">
-              Pool PDA: {pool.poolPubkey}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-5 min-w-0">
+            <MascotDisplay
+              variant="obsidian"
+              size="lg"
+              floating
+              alt="Actake Squad Lobby Mascot"
+            />
+            <div className="space-y-2.5 min-w-0">
+              <div className="text-xs font-semibold text-[#F16A2E]">
+                Solana Squad Lobby · Daily {deadlineLabel} Cutoff · {pool.totalDays}-Day Pool
+              </div>
+              <h1 className="font-display text-2xl sm:text-4xl font-extrabold tracking-tight leading-tight">
+                {pool.title}
+              </h1>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm tabular-nums text-white/85">
+                <span className="font-bold text-[#4ADE80]">
+                  ${pool.totalStaked.toFixed(2)} {pool.tokenSymbol} Pot
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>${pool.stakeAmount} Entry Stake</span>
+                <span aria-hidden="true">·</span>
+                <span className="text-[#FCA5A5]">${pool.slashedPotAvailable} Slashed Bonus</span>
+                <span aria-hidden="true">·</span>
+                <span>{pool.participantCount} Members</span>
+              </div>
+              <div className="text-[11px] font-mono text-white/55 truncate">
+                Pool PDA: {pool.poolPubkey}
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <button
               type="button"
               disabled={joining}
-              onClick={handleMatchAndJoin}
-              className="min-h-[48px] px-5 py-3 rounded-2xl bg-[#E86F48] hover:bg-[#D55E38] text-white text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap disabled:opacity-60"
+              onClick={() => void handleMatchAndJoin()}
+              className="min-h-[48px] px-5 py-3 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors whitespace-nowrap disabled:opacity-60"
             >
               {joining ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -368,26 +387,29 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
             <button
               type="button"
               onClick={handleStartWebcamProof}
-              className="min-h-[48px] px-5 py-3 rounded-2xl bg-white text-[#111114] hover:bg-[#F3F4F6] text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap"
+              className="min-h-[48px] px-5 py-3 rounded-full bg-white text-[#111114] hover:bg-[#FFF4EE] text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors whitespace-nowrap"
             >
-              <Camera className="w-4 h-4 text-[#E86F48]" />
-              <span>Browser Webcam Check-In</span>
+              <Camera className="w-4 h-4 text-[#F16A2E]" />
+              <span>Webcam Check-In</span>
             </button>
           </div>
         </div>
       </section>
 
       {joinNotice && (
-        <div className="rounded-2xl bg-[#ECFDF5] border border-[#A7F3D0] px-4 py-3 text-xs font-medium text-[#065F46] flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 shrink-0 text-[#22C55E]" />
+        <div className="rounded-2xl bg-[#ECFDF5] border border-[#BBF7D0] px-4 py-3 text-xs font-medium text-[#166534] flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 shrink-0 text-[#16A34A]" />
           <span>{joinNotice}</span>
         </div>
       )}
 
       {error && (
-        <div className="rounded-2xl bg-[#FEF2F2] border border-[#FECACA] px-4 py-3 text-xs text-[#991B1B]">
-          {error}
-        </div>
+        <ErrorStateCard
+          title="Lobby action failed"
+          message={error}
+          onRetry={() => void loadLobby()}
+          retryLabel="Refresh Lobby"
+        />
       )}
 
       {/* Main 2-Column Split: Leaderboard + Solana Blink Card | Verified Check-In Proof Stream */}
@@ -397,33 +419,42 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
           {/* Leaderboard */}
           <div className="actake-card p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-display text-lg font-bold text-[#111114] flex items-center gap-2">
-                <Trophy className="w-4 h-4 text-[#E86F48]" />
+              <h2 className="font-display text-lg font-extrabold text-[#111114] flex items-center gap-2">
+                <Trophy className="w-4 h-4 text-[#F16A2E]" />
                 <span>Squad Leaderboard</span>
               </h2>
-              <span className="text-xs text-[#5E6470] tabular-nums">
+              <span className="text-xs text-[#6B6663] tabular-nums">
                 {participants.length} tracked
               </span>
             </div>
 
             {participants.length === 0 ? (
-              <p className="text-xs text-[#5E6470]">
-                No participants yet. Match the stake above to lead this squad.
-              </p>
+              <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-4 text-center space-y-2.5">
+                <p className="text-xs text-[#6B6663]">
+                  No participants yet. Match the stake above to lead this squad.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleMatchAndJoin()}
+                  className="min-h-[40px] px-4 py-1.5 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold transition-colors"
+                >
+                  Be First to Join
+                </button>
+              </div>
             ) : (
-              <div className="divide-y divide-[#F0F0F4]">
+              <div className="divide-y divide-[#F6EFEA]">
                 {participants.map((p, idx) => (
                   <div
                     key={p.id}
                     className="py-3 flex items-center justify-between gap-3 text-sm"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <span className="font-mono text-xs font-bold text-[#5E6470] w-5 tabular-nums">
+                      <span className="font-mono text-xs font-bold text-[#877F7A] w-5 tabular-nums">
                         #{idx + 1}
                       </span>
                       <div className="min-w-0">
-                        <div className="font-semibold text-[#111114] truncate">{p.displayName}</div>
-                        <div className="text-xs text-[#5E6470] font-mono">
+                        <div className="font-bold text-[#111114] truncate">{p.displayName}</div>
+                        <div className="text-xs text-[#6B6663] font-mono">
                           {shortenAddress(p.userPubkey, 4)}
                         </div>
                       </div>
@@ -433,7 +464,7 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
                         {p.checkinsCompleted}/{pool.totalDays} days
                       </div>
                       <div
-                        className={`text-[11px] font-medium ${
+                        className={`text-[11px] font-semibold ${
                           p.isSlashed ? 'text-[#DC2626]' : 'text-[#16A34A]'
                         }`}
                       >
@@ -449,29 +480,28 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
           {/* Live Solana Blink Card (@solana/actions) */}
           <div className="actake-card p-6 space-y-4">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="font-display text-lg font-bold text-[#111114] flex items-center gap-2">
-                <Share2 className="w-4 h-4 text-[#E86F48]" />
+              <h2 className="font-display text-lg font-extrabold text-[#111114] flex items-center gap-2">
+                <Share2 className="w-4 h-4 text-[#F16A2E]" />
                 <span>Solana Blink Action</span>
               </h2>
-              <span className="text-[11px] font-mono text-[#5E6470]">
+              <span className="text-[11px] font-mono text-[#6B6663] truncate">
                 /api/actions/join/{pool.id}
               </span>
             </div>
 
             {blinkMeta && (
-              <div className="rounded-2xl bg-[#F7F7F9] border border-[#E8E8EE] p-4 space-y-3">
-                <div className="flex items-center gap-3">
-                  <img
-                    src="/assets/aistudio/Gemini_Generated_Image_eh2x1teh2x1teh2x_c3446dad.jpg"
-                    alt="Actake Blink Card Icon"
-                    referrerPolicy="no-referrer"
-                    className="w-12 h-12 rounded-xl object-cover shrink-0"
+              <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-4 space-y-3">
+                <div className="flex items-center gap-3.5">
+                  <MascotDisplay
+                    variant="medallion"
+                    size="md"
+                    alt="Actake Blink Card Mascot"
                   />
                   <div className="min-w-0">
                     <div className="text-sm font-bold text-[#111114] truncate">
                       {blinkMeta.title}
                     </div>
-                    <div className="text-xs text-[#5E6470] line-clamp-2 mt-0.5">
+                    <div className="text-xs text-[#6B6663] line-clamp-2 mt-0.5">
                       {blinkMeta.description}
                     </div>
                   </div>
@@ -479,13 +509,13 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
                 <button
                   type="button"
                   disabled={testingBlinkTx}
-                  onClick={handleTestBlinkActionPost}
-                  className="w-full min-h-[42px] rounded-xl bg-[#141416] hover:bg-[#232329] text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+                  onClick={() => void handleTestBlinkActionPost()}
+                  className="w-full min-h-[44px] rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
                 >
                   {testingBlinkTx ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
-                    <ExternalLink className="w-3.5 h-3.5 text-[#E86F48]" />
+                    <ExternalLink className="w-3.5 h-3.5 text-[#F16A2E]" />
                   )}
                   <span>{blinkMeta.label} (Preview Blink Tx)</span>
                 </button>
@@ -493,7 +523,7 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
             )}
 
             {blinkTxPreview && (
-              <div className="rounded-xl bg-[#ECFDF5] border border-[#A7F3D0] p-3 text-[11px] font-mono text-[#065F46] break-all">
+              <div className="rounded-2xl bg-[#ECFDF5] border border-[#BBF7D0] p-3 text-[11px] font-mono text-[#166534] break-all">
                 {blinkTxPreview}
               </div>
             )}
@@ -501,25 +531,25 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
-                onClick={() => handleCopy('blink')}
-                className="min-h-[42px] rounded-xl bg-[#F7F7F9] border border-[#E6E6EC] hover:border-[#141416] text-xs font-semibold text-[#111114] inline-flex items-center justify-center gap-1.5 transition-colors"
+                onClick={() => void handleCopy('blink')}
+                className="min-h-[44px] rounded-full bg-[#FFF4EE] border border-[#F2E3DA] hover:bg-[#FFE5D6] text-xs font-bold text-[#111114] inline-flex items-center justify-center gap-1.5 transition-colors"
               >
                 {copiedLink === 'blink' ? (
-                  <Check className="w-3.5 h-3.5 text-[#22C55E]" />
+                  <Check className="w-3.5 h-3.5 text-[#16A34A]" />
                 ) : (
-                  <Copy className="w-3.5 h-3.5 text-[#5E6470]" />
+                  <Copy className="w-3.5 h-3.5 text-[#F16A2E]" />
                 )}
                 <span>{copiedLink === 'blink' ? 'Blink Copied' : 'Copy Blink URL'}</span>
               </button>
               <button
                 type="button"
-                onClick={() => handleCopy('lobby')}
-                className="min-h-[42px] rounded-xl bg-[#F7F7F9] border border-[#E6E6EC] hover:border-[#141416] text-xs font-semibold text-[#111114] inline-flex items-center justify-center gap-1.5 transition-colors"
+                onClick={() => void handleCopy('lobby')}
+                className="min-h-[44px] rounded-full bg-[#FFF4EE] border border-[#F2E3DA] hover:bg-[#FFE5D6] text-xs font-bold text-[#111114] inline-flex items-center justify-center gap-1.5 transition-colors"
               >
                 {copiedLink === 'lobby' ? (
-                  <Check className="w-3.5 h-3.5 text-[#22C55E]" />
+                  <Check className="w-3.5 h-3.5 text-[#16A34A]" />
                 ) : (
-                  <Users className="w-3.5 h-3.5 text-[#5E6470]" />
+                  <Users className="w-3.5 h-3.5 text-[#F16A2E]" />
                 )}
                 <span>{copiedLink === 'lobby' ? 'Lobby Copied' : 'Copy Lobby Link'}</span>
               </button>
@@ -529,35 +559,33 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
 
         {/* Right Column: Verified Check-In Proof Feed */}
         <div className="lg:col-span-7 actake-card overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#F0F0F4] flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-[#F4ECE7] flex items-center justify-between gap-2">
             <div>
-              <h2 className="font-display text-lg font-bold text-[#111114]">
+              <h2 className="font-display text-lg font-extrabold text-[#111114]">
                 Verified Onchain Proof Feed
               </h2>
-              <p className="text-xs text-[#5E6470]">
+              <p className="text-xs text-[#6B6663]">
                 AI Vision + Ed25519 oracle attestations recorded for this pool
               </p>
             </div>
-            <span className="text-xs font-mono font-semibold text-[#16A34A] tabular-nums">
+            <span className="text-xs font-mono font-bold text-[#16A34A] tabular-nums whitespace-nowrap">
               {checkins.filter((c) => c.status === 'verified').length} verified
             </span>
           </div>
 
           {checkins.length === 0 ? (
-            <div className="p-8 text-center space-y-3">
-              <p className="text-sm text-[#5E6470]">
-                No check-ins submitted yet for this squad.
-              </p>
-              <button
-                type="button"
-                onClick={handleStartWebcamProof}
-                className="min-h-[42px] px-4 py-2 rounded-xl bg-[#E86F48] text-white text-xs font-semibold"
-              >
-                Submit First Webcam Proof
-              </button>
+            <div className="p-6">
+              <EmptyState
+                showMascot
+                title="No Proofs Submitted Yet"
+                description="Be the first member in this squad to pass a live AI camera verification check-in."
+                ctaLabel="Submit First Webcam Proof"
+                onCta={handleStartWebcamProof}
+                className="border-0 shadow-none"
+              />
             </div>
           ) : (
-            <div className="divide-y divide-[#F0F0F4]">
+            <div className="divide-y divide-[#F6EFEA]">
               {checkins.map((item) => (
                 <div key={item.id} className="p-5 space-y-3">
                   <div className="flex items-start justify-between gap-3">
@@ -565,7 +593,7 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
                       <div
                         className={`w-10 h-10 rounded-full text-xs font-bold flex items-center justify-center shrink-0 ${
                           item.status === 'verified'
-                            ? 'bg-[#141416] text-white'
+                            ? 'bg-[#111114] text-white'
                             : 'bg-[#FEE2E2] text-[#991B1B]'
                         }`}
                       >
@@ -574,24 +602,24 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
                       <div className="min-w-0">
                         <div className="text-sm font-bold text-[#111114] flex flex-wrap items-center gap-1.5">
                           <span>{item.memberName}</span>
-                          <span className="text-[#8E8E93] font-normal">·</span>
-                          <span className="text-xs font-medium text-[#5E6470]">
+                          <span className="text-[#A09A96] font-normal">·</span>
+                          <span className="text-xs font-medium text-[#6B6663]">
                             {item.targetPrompt}
                           </span>
                           {item.status === 'verified' && (
                             <>
-                              <span className="text-[#8E8E93] font-normal">·</span>
+                              <span className="text-[#A09A96] font-normal">·</span>
                               <span className="text-xs font-mono text-[#16A34A] tabular-nums">
                                 {Math.round(item.confidence * 100)}% AI match
                               </span>
                             </>
                           )}
                         </div>
-                        <p className="text-xs text-[#5E6470] mt-1 leading-relaxed">
+                        <p className="text-xs text-[#6B6663] mt-1 leading-relaxed">
                           {item.reason}
                         </p>
                         {item.proofHash && (
-                          <div className="text-[11px] font-mono text-[#8E8E93] mt-1.5 truncate">
+                          <div className="text-[11px] font-mono text-[#8E8782] mt-1.5 truncate">
                             SHA-256: {item.proofHash.slice(0, 20)}... · Ed25519:{' '}
                             {item.oracleSignature.slice(0, 16)}...
                           </div>
@@ -601,7 +629,7 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
 
                     <div className="shrink-0">
                       {item.status === 'verified' ? (
-                        <CheckCircle2 className="w-5 h-5 text-[#22C55E]" />
+                        <CheckCircle2 className="w-5 h-5 text-[#16A34A]" />
                       ) : (
                         <XCircle className="w-5 h-5 text-[#DC2626]" />
                       )}
@@ -612,18 +640,18 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
                     <div className="flex items-center justify-end gap-2">
                       <button
                         type="button"
-                        onClick={() => handleReact(item.id, 'like')}
-                        className="min-h-[34px] px-3 rounded-lg bg-[#F7F7F9] border border-[#E6E6EC] hover:border-[#E86F48] text-xs font-semibold text-[#111114] inline-flex items-center gap-1.5 tabular-nums transition-colors"
+                        onClick={() => void handleReact(item.id, 'like')}
+                        className="min-h-[38px] px-3.5 rounded-full bg-[#FFF8F4] border border-[#F2E3DA] hover:border-[#F16A2E] text-xs font-semibold text-[#111114] inline-flex items-center gap-1.5 tabular-nums transition-colors"
                       >
-                        <ThumbsUp className="w-3.5 h-3.5 text-[#5E6470]" />
+                        <ThumbsUp className="w-3.5 h-3.5 text-[#6B6663]" />
                         <span>{item.likes}</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleReact(item.id, 'fire')}
-                        className="min-h-[34px] px-3 rounded-lg bg-[#F7F7F9] border border-[#E6E6EC] hover:border-[#E86F48] text-xs font-semibold text-[#111114] inline-flex items-center gap-1.5 tabular-nums transition-colors"
+                        onClick={() => void handleReact(item.id, 'fire')}
+                        className="min-h-[38px] px-3.5 rounded-full bg-[#FFF8F4] border border-[#F2E3DA] hover:border-[#F16A2E] text-xs font-semibold text-[#111114] inline-flex items-center gap-1.5 tabular-nums transition-colors"
                       >
-                        <Flame className="w-3.5 h-3.5 text-[#E86F48]" />
+                        <Flame className="w-3.5 h-3.5 text-[#F16A2E]" />
                         <span>{item.fires}</span>
                       </button>
                     </div>

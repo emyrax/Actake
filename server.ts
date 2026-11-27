@@ -927,8 +927,35 @@ Evaluate the live camera photo strictly:
   };
 }
 
-async function startServer() {
+function resolveBaseOrigin(req: express.Request): string {
+  const envAppUrl = process.env.APP_URL?.trim();
+  if (envAppUrl) {
+    return envAppUrl.replace(/\/$/, '');
+  }
+  const vercelProdUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (vercelProdUrl) {
+    return (
+      vercelProdUrl.startsWith('http') ? vercelProdUrl : `https://${vercelProdUrl}`
+    ).replace(/\/$/, '');
+  }
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  if (vercelUrl) {
+    return (vercelUrl.startsWith('http') ? vercelUrl : `https://${vercelUrl}`).replace(/\/$/, '');
+  }
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https')
+    .split(',')[0]
+    .trim();
+  const forwardedHost = String(
+    req.headers['x-forwarded-host'] || req.get('host') || `localhost:${PORT}`
+  )
+    .split(',')[0]
+    .trim();
+  return `${forwardedProto}://${forwardedHost}`.replace(/\/$/, '');
+}
+
+export function createApiApp(): express.Express {
   const app = express();
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '15mb' }));
 
   app.get('/api/health', (_req, res) => {
@@ -967,8 +994,7 @@ async function startServer() {
     try {
       const poolId = String(req.params.poolId || '').trim();
       const pool = (await getPoolById(poolId)) || (await listPools(1))[0];
-      const baseOrigin =
-        process.env.APP_URL?.replace(/\/$/, '') || `${req.protocol}://${req.get('host')}`;
+      const baseOrigin = resolveBaseOrigin(req);
 
       if (!pool) {
         res.status(404).json({ message: 'Pool not found' });
@@ -981,7 +1007,7 @@ async function startServer() {
 
       res.json({
         type: 'action',
-        icon: `${baseOrigin}/assets/aistudio/Gemini_Generated_Image_eh2x1teh2x1teh2x_c3446dad.jpg`,
+        icon: `${baseOrigin}/assets/aistudio/image-removebg-preview__1__38d6ac67.png`,
         title: `Join ${pool.title} · $${pool.totalStaked} ${pool.tokenSymbol} Pot`,
         description: `Stake $${pool.stakeAmount} ${pool.tokenSymbol} to join ${pool.participantCount} members. Daily ${deadlineLabel} AI-verified check-in — missed alarms slash into the winners' split.`,
         label: `Stake $${pool.stakeAmount} ${pool.tokenSymbol} & Join Squad`,
@@ -1524,9 +1550,7 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
         }
       }
 
-      const configuredOrigin =
-        process.env.APP_URL?.trim() ||
-        `${req.protocol}://${req.get('host') || `localhost:${PORT}`}`;
+      const configuredOrigin = resolveBaseOrigin(req);
 
       res.json({
         checkedAt: new Date().toISOString(),
@@ -1564,7 +1588,15 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
 
   app.get('/api/system/supabase-schema', (_req, res) => {
     try {
-      const schemaPath = path.resolve(__dirname, 'supabase', 'schema.sql');
+      const candidates = [
+        path.resolve(__dirname, 'supabase', 'schema.sql'),
+        path.resolve(process.cwd(), 'supabase', 'schema.sql'),
+      ];
+      const schemaPath = candidates.find((p) => fs.existsSync(p));
+      if (!schemaPath) {
+        res.status(404).json({ error: 'supabase/schema.sql not found.' });
+        return;
+      }
       const sql = fs.readFileSync(schemaPath, 'utf-8');
       res.type('text/plain').send(sql);
     } catch {
@@ -1581,7 +1613,7 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
         ? req.query.origin.trim()
         : typeof req.headers.origin === 'string'
           ? req.headers.origin.trim()
-          : (process.env.APP_URL || '').trim();
+          : resolveBaseOrigin(req);
 
     let safeOrigin = '';
     try {
@@ -1958,8 +1990,17 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
     }
   });
 
+  return app;
+}
+
+export const apiApp = createApiApp();
+
+async function startServer() {
+  const app = apiApp;
+
   if (!isProduction) {
-    const { createServer: createViteServer } = await import('vite');
+    const viteModuleName = 'vite';
+    const { createServer: createViteServer } = await import(viteModuleName);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -1980,7 +2021,12 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start Actake server:', err);
-  process.exit(1);
-});
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error('Failed to start Actake server:', err);
+    process.exit(1);
+  });
+}
+
+export default apiApp;
+

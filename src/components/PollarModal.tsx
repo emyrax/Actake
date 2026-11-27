@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useActakePollar } from '../context/ActakePollarProvider';
 import { shortenAddress } from '../solana/walletManager';
+import { MascotDisplay } from './MascotDisplay';
 
 interface PollarModalProps {
   mode: 'connect' | 'fund';
@@ -71,19 +72,26 @@ export const PollarModal: React.FC<PollarModalProps> = ({
     >
       <div className="w-full max-w-md rounded-t-[30px] sm:rounded-[30px] bg-[#FFF8F4] border border-[#F2E2D8] p-6 space-y-5 shadow-2xl max-h-[92vh] overflow-y-auto">
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="inline-flex items-center gap-1.5 text-xs font-bold text-[#F16A2E]">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Pollar Protocol · Solana</span>
+          <div className="flex items-center gap-3 min-w-0">
+            <MascotDisplay
+              variant="medallion"
+              size="xs"
+              alt="Actake Pollar Mascot"
+            />
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-[#F16A2E]">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Pollar Protocol · Solana</span>
+              </div>
+              <h2
+                id="pollar-modal-title"
+                className="font-display text-xl font-extrabold text-[#111114] mt-0.5"
+              >
+                {mode === 'fund'
+                  ? 'Fund & Manage with Pollar'
+                  : 'Sign In & Pay with Pollar'}
+              </h2>
             </div>
-            <h2
-              id="pollar-modal-title"
-              className="font-display text-xl font-extrabold text-[#111114] mt-0.5"
-            >
-              {mode === 'fund'
-                ? 'Fund & Manage with Pollar'
-                : 'Sign In & Pay with Pollar'}
-            </h2>
           </div>
           <button
             type="button"

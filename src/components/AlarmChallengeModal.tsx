@@ -1,6 +1,7 @@
 import React from 'react';
-import { AlertTriangle, BellRing, Camera, Loader2, ShieldAlert, Volume2, VolumeX } from 'lucide-react';
+import { AlertTriangle, BellRing, Camera, ShieldAlert, Volume2, VolumeX } from 'lucide-react';
 import { RandomizedTargetPrompt, StakeCommitment } from '../types/actake';
+import { MascotLoader } from './MascotDisplay';
 
 interface AlarmChallengeModalProps {
   stake: StakeCommitment;
@@ -58,16 +59,14 @@ export const AlarmChallengeModal: React.FC<AlarmChallengeModalProps> = ({
         {/* Challenge Body */}
         <div className="p-5 sm:p-6 space-y-4">
           {loading ? (
-            <div className="py-12 flex flex-col items-center justify-center text-center gap-3">
-              <Loader2 className="w-8 h-8 text-[#EC6B3F] animate-spin" />
-              <div>
-                <h2 id="alarm-challenge-title" className="font-display text-lg font-bold text-[#181E25]">
-                  Generating Anti-Cheat Target...
-                </h2>
-                <p className="text-xs text-[#5E6873] mt-1">
-                  Gemini Vision Oracle is picking a random everyday item or action tailored to {stake.categoryName}.
-                </p>
-              </div>
+            <div className="py-6">
+              <MascotLoader
+                size="xl"
+                theme="light"
+                titleId="alarm-challenge-title"
+                title="Generating Anti-Cheat Target..."
+                subtitle={`Gemini Vision Oracle is picking a random everyday item or action tailored to ${stake.categoryName}.`}
+              />
             </div>
           ) : error ? (
             <div className="py-6 space-y-4 text-center">

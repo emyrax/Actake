@@ -57,7 +57,7 @@ import {
 import { alarmAudio } from './utils/alarmAudio';
 import { formatClockTime12h } from './utils/timeUtils';
 import { BrandMark } from './components/BrandMark';
-import { OnboardingView } from './components/OnboardingView';
+import { ActakeLandingPage } from './components/landing/ActakeLandingPage';
 import { HomeView } from './components/HomeView';
 import { MissionsView } from './components/MissionsView';
 import { HuntsView } from './components/HuntsView';
@@ -71,8 +71,9 @@ import { AlarmSettingsModal } from './components/AlarmSettingsModal';
 import { WalletSheet } from './components/WalletSheet';
 import { PollarModal } from './components/PollarModal';
 import { SquadLobbyView } from './components/SquadLobbyView';
-import { EscrowVault3D } from './components/EscrowVault3D';
 import { ReadinessDrawer } from './components/ReadinessDrawer';
+import { MascotLoader } from './components/MascotDisplay';
+import { ToastHost, ToastMessage, ToastTone } from './components/UiPrimitives';
 
 function readPoolIdFromPathname(): string | null {
   if (typeof window === 'undefined') return null;
@@ -99,8 +100,17 @@ export default function App() {
     discoverAvailableWallets()
   );
   const [wallet, setWallet] = useState<WalletSession | null>(() => loadPersistedWalletSession());
+  const [bootSplash, setBootSplash] = useState(true);
   const [connectingWallet, setConnectingWallet] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
+
+  // Brief branded mascot splash entrance on initial load
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setBootSplash(false);
+    }, 650);
+    return () => window.clearTimeout(id);
+  }, []);
 
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [pendingExplorePreset, setPendingExplorePreset] = useState<ExploreHabitPreset | null>(null);
@@ -108,10 +118,25 @@ export default function App() {
     readPoolIdFromPathname()
   );
   const [globalActivity, setGlobalActivity] = useState<GlobalActivitySummary | null>(null);
+  const [globalActivityLoading, setGlobalActivityLoading] = useState<boolean>(true);
+  const [globalActivityError, setGlobalActivityError] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [userData, setUserData] = useState<PersistedUserData | null>(() =>
     wallet ? loadUserData(wallet.publicKey) : null
   );
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const pushToast = useCallback((tone: ToastTone, title: string, detail?: string) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setToasts((prev) => [...prev.slice(-2), { id, tone, title, detail }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3800);
+  }, []);
 
   // Solana Devnet telemetry
   const [devnet, setDevnet] = useState<DevnetSyncState>({
@@ -129,7 +154,6 @@ export default function App() {
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const [readinessDrawerOpen, setReadinessDrawerOpen] = useState(false);
   const [pollarModalMode, setPollarModalMode] = useState<'connect' | 'fund' | null>(null);
-  const [vaultExpandedOpen, setVaultExpandedOpen] = useState(false);
   const [claimingStakeId, setClaimingStakeId] = useState<string | null>(null);
   const awaitingPollarLoginRef = useRef(false);
 
@@ -278,19 +302,26 @@ export default function App() {
   }, []);
 
   const refreshGlobalActivity = useCallback(async () => {
+    setGlobalActivityLoading(true);
+    setGlobalActivityError(null);
     try {
       const resp = await fetch('/api/activity/live');
-      if (resp.ok) {
-        const data = (await resp.json()) as GlobalActivitySummary;
-        setGlobalActivity(data);
+      if (!resp.ok) {
+        throw new Error(`Activity feed returned HTTP ${resp.status}`);
       }
-    } catch {
-      // ignore transient network errors
+      const data = (await resp.json()) as GlobalActivitySummary;
+      setGlobalActivity(data);
+    } catch (err) {
+      setGlobalActivityError(
+        err instanceof Error ? err.message : 'Unable to reach live community pulse.'
+      );
+    } finally {
+      setGlobalActivityLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    refreshGlobalActivity();
+    void refreshGlobalActivity();
   }, [refreshGlobalActivity]);
 
   const navigateToSquadLobby = useCallback((poolId: string) => {
@@ -339,30 +370,46 @@ export default function App() {
   }, []);
 
   // Sync live Solana Devnet slot & SOL balance
-  const syncDevnet = useCallback(async (pubkey?: string) => {
-    setDevnet((prev) => ({ ...prev, syncing: true, error: null }));
-    try {
-      const result = await fetchDevnetTelemetry(pubkey);
-      setDevnet({
-        slot: result.slot,
-        solBalance: result.solBalance,
-        blockhash: result.blockhash,
-        lastSyncedAt: Date.now(),
-        syncing: false,
-        error: null,
-      });
-    } catch (err) {
-      setDevnet((prev) => ({
-        ...prev,
-        syncing: false,
-        error: err instanceof Error ? err.message : 'Devnet sync failed',
-      }));
-    }
-  }, []);
+  const syncDevnet = useCallback(
+    async (pubkey?: string, notifyUser = false) => {
+      setDevnet((prev) => ({ ...prev, syncing: true, error: null }));
+      try {
+        const result = await fetchDevnetTelemetry(pubkey);
+        setDevnet({
+          slot: result.slot,
+          solBalance: result.solBalance,
+          blockhash: result.blockhash,
+          lastSyncedAt: Date.now(),
+          syncing: false,
+          error: null,
+        });
+        if (notifyUser) {
+          pushToast(
+            'success',
+            'Solana Devnet Synced',
+            `Slot #${result.slot.toLocaleString()}${
+              result.solBalance !== null ? ` · ${result.solBalance.toFixed(4)} SOL` : ''
+            }`
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Devnet sync failed';
+        setDevnet((prev) => ({
+          ...prev,
+          syncing: false,
+          error: msg,
+        }));
+        if (notifyUser) {
+          pushToast('error', 'Devnet Sync Failed', msg);
+        }
+      }
+    },
+    [pushToast]
+  );
 
   useEffect(() => {
     if (wallet) {
-      syncDevnet(wallet.publicKey);
+      void syncDevnet(wallet.publicKey, false);
     }
   }, [wallet?.publicKey, syncDevnet]);
 
@@ -512,8 +559,11 @@ export default function App() {
       const session = await connectWalletWithSiws(walletId);
       setWallet(session);
       setWalletSheetOpen(false);
+      pushToast('success', 'Wallet Connected', `${session.walletName} (${shortenAddress(session.publicKey)})`);
     } catch (err) {
-      setWalletError(err instanceof Error ? err.message : 'Wallet connection canceled or failed.');
+      const msg = err instanceof Error ? err.message : 'Wallet connection canceled or failed.';
+      setWalletError(msg);
+      pushToast('error', 'Wallet Connection Failed', msg);
     } finally {
       setConnectingWallet(false);
     }
@@ -541,6 +591,7 @@ export default function App() {
     setActiveChallenge(null);
     setInLiveCamera(false);
     setCelebrationReceipt(null);
+    pushToast('info', 'Wallet Disconnected', 'Your local Solana session has been cleared.');
   };
 
   // Fund or withdraw available Actake vault balance
@@ -558,6 +609,13 @@ export default function App() {
         earnedSkrBalance: Math.max(0, Number((prev.earnedSkrBalance + delta).toFixed(2))),
       };
     });
+    pushToast(
+      'success',
+      kind === 'fund' ? 'Vault Funded' : 'Withdrawal Complete',
+      kind === 'fund'
+        ? `Added $${amount.toFixed(2)} ${token} to your Actake staking vault.`
+        : `Withdrew $${amount.toFixed(2)} ${token} back to your Solana wallet.`
+    );
   };
 
   // Create stake via actake_escrow::join_pool bound to live Solana Devnet blockhash
@@ -682,6 +740,11 @@ export default function App() {
         }
       });
 
+      pushToast(
+        'success',
+        'Stake Locked in Escrow',
+        `${params.category.name} · $${params.amount.toFixed(2)} ${params.token} armed for ${formatClockTime12h(params.alarmHour, params.alarmMinute).full}.`
+      );
       setActiveTab('home');
     } finally {
       setSubmittingStake(false);
@@ -889,6 +952,11 @@ export default function App() {
             }
           : null
       );
+      pushToast(
+        'success',
+        'Payout Claimed',
+        `Redeemed $${celebrationReceipt.totalEarned.toFixed(2)} ${celebrationReceipt.token} into your vault.`
+      );
     } finally {
       setClaimingPayout(false);
     }
@@ -977,6 +1045,11 @@ export default function App() {
       if (claimResult.broadcastedOnChain) {
         void syncDevnet(wallet.publicKey);
       }
+      pushToast(
+        'success',
+        'Payout Settled',
+        `Redeemed $${totalPayout.toFixed(2)} ${stake.token} for ${stake.categoryName}.`
+      );
     } finally {
       setClaimingStakeId(null);
     }
@@ -1044,19 +1117,43 @@ export default function App() {
               onClose={() => setPollarModalMode(null)}
             />
           )}
+          <ToastHost toasts={toasts} onDismiss={dismissToast} />
         </div>
       );
     }
 
     return (
       <>
-        <OnboardingView
+        {bootSplash && (
+          <div className="fixed inset-0 z-[70] actake-canvas flex flex-col items-center justify-center p-6 gap-5">
+            <BrandMark size="lg" />
+            <MascotLoader
+              size="2xl"
+              theme="light"
+              title="Loading Actake..."
+              subtitle="Preparing Solana Devnet, Pollar wallet & accountability vault"
+            />
+          </div>
+        )}
+        <ActakeLandingPage
           wallets={wallets}
           platform={platform}
           connecting={connectingWallet}
           error={walletError}
           onConnect={handleConnectWallet}
         />
+        {connectingWallet && (
+          <div className="fixed inset-0 z-[65] bg-[#111114]/55 backdrop-blur-xs flex items-center justify-center p-6">
+            <div className="w-full max-w-sm rounded-[32px] bg-[#FFF8F4] border border-[#F2E2D8] px-6 py-8 shadow-2xl">
+              <MascotLoader
+                size="xl"
+                theme="light"
+                title="Connecting Solana Wallet..."
+                subtitle="Approve Sign-In With Solana (SIWS) to unlock your vault"
+              />
+            </div>
+          </div>
+        )}
         {pollarModalMode && (
           <PollarModal
             mode={pollarModalMode}
@@ -1064,23 +1161,18 @@ export default function App() {
             onClose={() => setPollarModalMode(null)}
           />
         )}
+        <ToastHost toasts={toasts} onDismiss={dismissToast} />
       </>
     );
   }
 
   const allCategories = [...BUILTIN_CATEGORIES, ...userData.customCategories];
-  const activeLockedTotal = userData.stakes
-    .filter((s) => s.status === 'locked' || s.status === 'ringing')
-    .reduce((sum, s) => sum + s.amount, 0);
-  const activeLockedCount = userData.stakes.filter(
-    (s) => s.status === 'locked' || s.status === 'ringing'
-  ).length;
 
   return (
     <div className="min-h-screen actake-canvas text-[#111114] flex flex-col">
       {/* Strict 3-Zone Top Bar Contract: [Brand] — [5 single-line nav links] — [1 primary Wallet CTA] */}
-      <header className="sticky top-0 z-30 bg-[#FFF4EE]/90 backdrop-blur-md border-b border-[#F2E2D8]">
-        <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-8">
+      <header className="sticky top-0 z-30 bg-[#FFF4EE]/92 backdrop-blur-md border-b border-[#F2E2D8]">
+        <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-6">
           <button
             type="button"
             onClick={() => {
@@ -1088,13 +1180,14 @@ export default function App() {
               setActiveTab('home');
               window.history.pushState({}, '', '/');
             }}
-            className="text-left focus-visible:outline-none"
+            className="text-left min-h-[44px] flex items-center rounded-xl"
           >
             <BrandMark size="md" />
           </button>
 
-          <nav className="hidden md:flex items-center gap-7 text-sm font-semibold text-[#6B6663]">
+          <nav aria-label="Primary Navigation" className="hidden md:flex items-center gap-2 text-sm font-semibold text-[#6B6663]">
             {NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
               const active = !activeLobbyPoolId && activeTab === item.id;
               return (
                 <button
@@ -1105,13 +1198,14 @@ export default function App() {
                     setActiveTab(item.id);
                     window.history.pushState({}, '', '/');
                   }}
-                  className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
+                  className={`min-h-[44px] px-3.5 py-2 rounded-full inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
                     active
-                      ? 'text-[#111114] border-[#F16A2E]'
-                      : 'border-transparent hover:text-[#111114]'
+                      ? 'bg-[#FFF0E6] text-[#111114] font-bold'
+                      : 'text-[#6B6663] hover:text-[#111114] hover:bg-white/70'
                   }`}
                 >
-                  {item.label}
+                  <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-[#F16A2E]' : 'text-[#8E8782]'}`} />
+                  <span>{item.label}</span>
                 </button>
               );
             })}
@@ -1121,7 +1215,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setWalletSheetOpen(true)}
-              className="min-h-[40px] px-4 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-mono font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
+              className="min-h-[44px] px-4 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-mono font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 shadow-xs"
             >
               <Wallet className="w-3.5 h-3.5 text-[#F16A2E]" />
               <span>{shortenAddress(wallet.publicKey)}</span>
@@ -1160,12 +1254,14 @@ export default function App() {
                 alarmSettings={userData.alarmSettings}
                 devnet={devnet}
                 globalActivity={globalActivity}
-                onRefreshDevnet={() => syncDevnet(wallet.publicKey)}
+                globalActivityLoading={globalActivityLoading}
+                globalActivityError={globalActivityError}
+                onRetryGlobalActivity={() => void refreshGlobalActivity()}
+                onRefreshDevnet={() => void syncDevnet(wallet.publicKey, true)}
                 onOpenMissions={() => setActiveTab('missions')}
                 onOpenAlarmSettings={() => setAlarmSettingsOpen(true)}
                 onOpenPollarFund={handleOpenPollarFund}
                 onTriggerTestAlarm={triggerAlarmForStake}
-                onExpandVault3D={() => setVaultExpandedOpen(true)}
                 onOpenSquadLobby={navigateToSquadLobby}
                 onAdjustVaultBalance={handleAdjustVaultBalance}
                 onClaimVerifiedStake={handleClaimVerifiedStake}
@@ -1229,6 +1325,11 @@ export default function App() {
                     ...prev,
                     squads: [squad, ...prev.squads],
                   }));
+                  pushToast(
+                    'success',
+                    'Community Pool Created',
+                    `${squad.name} · $${squad.stakeAmount} ${squad.token} accountability pool is live.`
+                  );
                   void fetch('/api/pools', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1307,20 +1408,6 @@ export default function App() {
         </div>
       </nav>
 
-      {/* Fullscreen 3D Escrow Vault Inspector Modal */}
-      {vaultExpandedOpen && (
-        <div className="fixed inset-0 z-50 bg-[#FFF4EE]">
-          <EscrowVault3D
-            vaultState={ringingStake ? 'ringing' : celebrationReceipt ? 'verified' : 'locked'}
-            totalLockedUsd={activeLockedTotal}
-            activeStakesCount={activeLockedCount}
-            expanded
-            onToggleExpand={() => setVaultExpandedOpen(false)}
-            className="w-screen h-screen rounded-none border-0"
-          />
-        </div>
-      )}
-
       {/* Non-Dismissible Ringing Alarm Challenge Pop-Up */}
       {ringingStake && !inLiveCamera && (
         <AlarmChallengeModal
@@ -1370,9 +1457,10 @@ export default function App() {
       {alarmSettingsOpen && (
         <AlarmSettingsModal
           settings={userData.alarmSettings}
-          onChange={(next: AlarmSettings) =>
-            updateUserData((prev) => ({ ...prev, alarmSettings: next }))
-          }
+          onChange={(next: AlarmSettings) => {
+            updateUserData((prev) => ({ ...prev, alarmSettings: next }));
+            pushToast('success', 'Alarm Preferences Updated', 'Your sound and strictness settings are saved.');
+          }}
           onClose={() => setAlarmSettingsOpen(false)}
         />
       )}
@@ -1384,7 +1472,7 @@ export default function App() {
           wallets={wallets}
           platform={platform}
           devnet={devnet}
-          onRefreshDevnet={() => syncDevnet(wallet.publicKey)}
+          onRefreshDevnet={() => void syncDevnet(wallet.publicKey, true)}
           onOpenPollarFund={handleOpenPollarFund}
           onSwitchWallet={handleConnectWallet}
           onDisconnect={handleDisconnect}
@@ -1411,6 +1499,43 @@ export default function App() {
           onClose={() => setPollarModalMode(null)}
         />
       )}
+
+      {/* Branded Initial Boot Splash */}
+      {bootSplash && (
+        <div className="fixed inset-0 z-[70] actake-canvas flex flex-col items-center justify-center p-6 gap-5">
+          <BrandMark size="lg" />
+          <MascotLoader
+            size="2xl"
+            theme="light"
+            title="Loading Actake..."
+            subtitle="Syncing Solana Devnet, Pollar wallet & accountability vault"
+          />
+        </div>
+      )}
+
+      {/* Live Wallet Connection / Escrow Stake Signing Loader Overlay */}
+      {(connectingWallet || submittingStake) && (
+        <div className="fixed inset-0 z-[65] bg-[#111114]/55 backdrop-blur-xs flex items-center justify-center p-6">
+          <div className="w-full max-w-sm rounded-[32px] bg-[#FFF8F4] border border-[#F2E2D8] px-6 py-8 shadow-2xl">
+            <MascotLoader
+              size="xl"
+              theme="light"
+              title={
+                submittingStake
+                  ? 'Locking Stake in Escrow...'
+                  : 'Connecting Solana Wallet...'
+              }
+              subtitle={
+                submittingStake
+                  ? 'Confirming your Solana commitment & arming your daily alarm'
+                  : 'Approve your wallet signature to continue'
+              }
+            />
+          </div>
+        </div>
+      )}
+
+      <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

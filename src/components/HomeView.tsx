@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertCircle,
   ArrowDownLeft,
   ArrowUpRight,
   BellRing,
-  Box,
   Camera,
   Check,
   CheckCircle2,
@@ -13,8 +13,10 @@ import {
   Plus,
   QrCode,
   RefreshCw,
+  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  TrendingUp,
   Users,
   Volume2,
   Wallet,
@@ -37,7 +39,13 @@ import {
   isSameDayAlarm,
 } from '../utils/timeUtils';
 import { ALARM_SOUNDS } from '../utils/alarmAudio';
-import { EscrowVault3D } from './EscrowVault3D';
+import { MascotDisplay } from './MascotDisplay';
+import {
+  ActivityPulseSkeleton,
+  EmptyState,
+  ErrorStateCard,
+  SparklineSvg,
+} from './UiPrimitives';
 
 interface HomeViewProps {
   nowMs: number;
@@ -51,12 +59,14 @@ interface HomeViewProps {
   alarmSettings: AlarmSettings;
   devnet: DevnetSyncState;
   globalActivity: GlobalActivitySummary | null;
+  globalActivityLoading?: boolean;
+  globalActivityError?: string | null;
+  onRetryGlobalActivity?: () => void;
   onRefreshDevnet: () => void;
   onOpenMissions: () => void;
   onOpenAlarmSettings: () => void;
   onOpenPollarFund: () => void;
   onTriggerTestAlarm: (stake: StakeCommitment) => void;
-  onExpandVault3D: () => void;
   onOpenSquadLobby: (poolId: string) => void;
   onAdjustVaultBalance: (kind: 'fund' | 'withdraw', amount: number, token: TokenType) => void;
   onClaimVerifiedStake?: (stake: StakeCommitment) => Promise<void>;
@@ -64,45 +74,6 @@ interface HomeViewProps {
 }
 
 type TimeOfDayFilter = 'all' | 'morning' | 'midday' | 'afternoon';
-
-function AlarmIllustrationSvg() {
-  return (
-    <svg
-      viewBox="0 0 120 120"
-      className="w-24 h-24 sm:w-28 sm:h-28 shrink-0 drop-shadow-[0_10px_18px_rgba(241,106,46,0.22)]"
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id="alarmBody" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#FF8D57" />
-          <stop offset="100%" stopColor="#E45826" />
-        </linearGradient>
-      </defs>
-      {/* Ears / Bells */}
-      <circle cx="30" cy="30" r="14" fill="#18181B" />
-      <circle cx="90" cy="30" r="14" fill="#18181B" />
-      <path d="M24 22 L38 36 M96 22 L82 36" stroke="#F16A2E" strokeWidth="4" strokeLinecap="round" />
-      {/* Feet */}
-      <line x1="36" y1="96" x2="28" y2="108" stroke="#18181B" strokeWidth="6" strokeLinecap="round" />
-      <line x1="84" y1="96" x2="92" y2="108" stroke="#18181B" strokeWidth="6" strokeLinecap="round" />
-      {/* Clock Body */}
-      <circle cx="60" cy="64" r="38" fill="url(#alarmBody)" />
-      <circle cx="60" cy="64" r="30" fill="#FFFFFF" />
-      {/* Tick marks */}
-      <line x1="60" y1="40" x2="60" y2="44" stroke="#94A3B8" strokeWidth="2.5" strokeLinecap="round" />
-      <line x1="60" y1="84" x2="60" y2="88" stroke="#94A3B8" strokeWidth="2.5" strokeLinecap="round" />
-      <line x1="36" y1="64" x2="40" y2="64" stroke="#94A3B8" strokeWidth="2.5" strokeLinecap="round" />
-      <line x1="80" y1="64" x2="84" y2="64" stroke="#94A3B8" strokeWidth="2.5" strokeLinecap="round" />
-      {/* Hands */}
-      <line x1="60" y1="64" x2="60" y2="48" stroke="#111114" strokeWidth="3.5" strokeLinecap="round" />
-      <line x1="60" y1="64" x2="73" y2="64" stroke="#F16A2E" strokeWidth="3" strokeLinecap="round" />
-      <circle cx="60" cy="64" r="3.5" fill="#111114" />
-      {/* Motion rings */}
-      <path d="M12 42 Q8 30 18 20" fill="none" stroke="#F16A2E" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
-      <path d="M108 42 Q112 30 102 20" fill="none" stroke="#F16A2E" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
-    </svg>
-  );
-}
 
 export const HomeView: React.FC<HomeViewProps> = ({
   nowMs,
@@ -116,12 +87,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
   alarmSettings,
   devnet,
   globalActivity,
+  globalActivityLoading = false,
+  globalActivityError = null,
+  onRetryGlobalActivity,
   onRefreshDevnet,
   onOpenMissions,
   onOpenAlarmSettings,
   onOpenPollarFund,
   onTriggerTestAlarm,
-  onExpandVault3D,
   onOpenSquadLobby,
   onAdjustVaultBalance,
   onClaimVerifiedStake,
@@ -132,7 +105,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [vaultModalMode, setVaultModalMode] = useState<'fund' | 'withdraw' | null>(null);
   const [vaultAmount, setVaultAmount] = useState<number>(25);
   const [vaultToken, setVaultToken] = useState<TokenType>('USDC');
-  const [vaultNotice, setVaultNotice] = useState<string | null>(null);
+  const [vaultFormError, setVaultFormError] = useState<string | null>(null);
 
   const todayFormatted = useMemo(() => {
     const d = new Date(nowMs);
@@ -177,41 +150,67 @@ export const HomeView: React.FC<HomeViewProps> = ({
     () => activeStakes.reduce((sum, entry) => sum + entry.stake.amount, 0),
     [activeStakes]
   );
+  const totalProjectedSplit = useMemo(
+    () => activeStakes.reduce((sum, entry) => sum + entry.stake.slashedBonusEstimate, 0),
+    [activeStakes]
+  );
+  const skrStakeCount = useMemo(
+    () => activeStakes.filter((entry) => entry.stake.token === 'SKR').length,
+    [activeStakes]
+  );
   const combinedVaultUsd = earnedUsdcBalance + totalLockedUsd;
+
+  const vaultMomentumValues = useMemo(() => {
+    const base = Math.max(12, combinedVaultUsd * 0.72);
+    return [
+      base,
+      base * 1.04,
+      base * 1.09,
+      base * 1.15,
+      base * 1.22,
+      base * 1.31,
+      Math.max(base * 1.38, combinedVaultUsd),
+    ];
+  }, [combinedVaultUsd]);
 
   const selectedSoundLabel =
     ALARM_SOUNDS.find((a) => a.id === alarmSettings.selectedSound)?.label || 'Siren';
 
   const handleVaultSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!vaultModalMode || vaultAmount <= 0) return;
-    const maxAvail = vaultToken === 'USDC' ? earnedUsdcBalance : earnedSkrBalance;
-    const safeAmt =
-      vaultModalMode === 'withdraw' ? Math.min(vaultAmount, Math.max(0, maxAvail)) : vaultAmount;
-    if (vaultModalMode === 'withdraw' && safeAmt <= 0) {
-      setVaultNotice(`No available ${vaultToken} balance to withdraw.`);
+    setVaultFormError(null);
+    if (!vaultModalMode) return;
+    if (!Number.isFinite(vaultAmount) || vaultAmount <= 0) {
+      setVaultFormError('Enter an amount greater than 0.');
       return;
     }
-    onAdjustVaultBalance(vaultModalMode, safeAmt, vaultToken);
-    setVaultNotice(
-      vaultModalMode === 'fund'
-        ? `Deposited $${safeAmt.toFixed(2)} ${vaultToken} into your Actake staking vault.`
-        : `Withdrew $${safeAmt.toFixed(2)} ${vaultToken} back to your connected Solana wallet.`
-    );
+    const maxAvail = vaultToken === 'USDC' ? earnedUsdcBalance : earnedSkrBalance;
+    if (vaultModalMode === 'withdraw') {
+      if (maxAvail <= 0) {
+        setVaultFormError(`You have $0.00 available ${vaultToken} to withdraw.`);
+        return;
+      }
+      if (vaultAmount > maxAvail) {
+        setVaultFormError(`Maximum available ${vaultToken} is $${maxAvail.toFixed(2)}.`);
+        return;
+      }
+    }
+    onAdjustVaultBalance(vaultModalMode, vaultAmount, vaultToken);
     setVaultModalMode(null);
-    window.setTimeout(() => setVaultNotice(null), 3600);
   };
 
   return (
     <div className="space-y-6 pb-8">
       {/* Greeting Header Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-full bg-[#111114] text-white font-display font-bold text-sm flex items-center justify-center shadow-sm shrink-0">
-            {walletLabel.slice(0, 2).toUpperCase()}
-          </div>
-          <div>
-            <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-[#111114] tracking-tight">
+        <div className="flex items-center gap-3.5 min-w-0">
+          <MascotDisplay
+            variant="medallion"
+            size="sm"
+            alt="Actake Mascot Avatar"
+          />
+          <div className="min-w-0">
+            <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-[#111114] tracking-tight truncate">
               Hello, {walletLabel}
             </h1>
             <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-[#6B6663] tabular-nums">
@@ -232,7 +231,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             type="button"
             onClick={onRefreshDevnet}
             disabled={devnet.syncing}
-            className="min-h-[42px] px-3.5 py-2 rounded-full bg-white text-xs font-semibold text-[#111114] shadow-[0_4px_14px_rgba(24,20,18,0.06)] hover:bg-[#FFF9F5] transition-colors inline-flex items-center gap-2 whitespace-nowrap shrink-0"
+            className="min-h-[44px] px-3.5 py-2 rounded-full bg-white border border-[#EFE2D9] text-xs font-semibold text-[#111114] shadow-[0_4px_14px_rgba(24,20,18,0.05)] hover:bg-[#FFF9F5] transition-colors inline-flex items-center gap-2 whitespace-nowrap shrink-0"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 text-[#F16A2E] ${devnet.syncing ? 'animate-spin' : ''}`}
@@ -246,25 +245,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
             type="button"
             onClick={onOpenAlarmSettings}
             aria-label="Alarm settings"
-            className="min-h-[42px] min-w-[42px] px-3.5 py-2 rounded-full bg-white text-xs font-semibold text-[#111114] shadow-[0_4px_14px_rgba(24,20,18,0.06)] hover:bg-[#FFF9F5] transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
+            className="min-h-[44px] min-w-[44px] px-3.5 py-2 rounded-full bg-white border border-[#EFE2D9] text-xs font-semibold text-[#111114] shadow-[0_4px_14px_rgba(24,20,18,0.05)] hover:bg-[#FFF9F5] transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-[#111114]" />
             <span className="hidden sm:inline">Alarms</span>
           </button>
         </div>
       </div>
-
-      {vaultNotice && (
-        <div className="rounded-2xl bg-[#ECFDF5] border border-[#BBF7D0] px-4 py-3 text-xs font-medium text-[#166534] flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-[#16A34A] shrink-0" />
-            {vaultNotice}
-          </span>
-          <button type="button" onClick={() => setVaultNotice(null)} className="text-[#166534]/70">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
 
       {verifiedUnclaimedStakes.length > 0 && onClaimVerifiedStake && (
         <div className="rounded-3xl bg-[#ECFDF5] border border-[#BBF7D0] px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -291,7 +278,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             type="button"
             disabled={claimingStakeId === verifiedUnclaimedStakes[0].id}
             onClick={() => void onClaimVerifiedStake(verifiedUnclaimedStakes[0])}
-            className="min-h-[40px] px-4 py-2 rounded-full bg-[#14532D] hover:bg-[#16A34A] disabled:opacity-60 text-white text-xs font-bold whitespace-nowrap shrink-0 transition-colors"
+            className="min-h-[44px] px-5 py-2 rounded-full bg-[#14532D] hover:bg-[#16A34A] disabled:opacity-60 text-white text-xs font-bold whitespace-nowrap shrink-0 transition-colors"
           >
             {claimingStakeId === verifiedUnclaimedStakes[0].id
               ? 'Settling on Devnet...'
@@ -300,9 +287,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       )}
 
-      {/* Hero Section: Vault Balance & Fund/Withdraw Card + Featured Daily Challenge Card */}
+      {/* Hero Section: Vault Balance Card + Featured Daily Challenge Card */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-        {/* Left Hero: Obsidian Vault Balance + Fund / Withdraw Controls */}
+        {/* Left Hero: Obsidian Vault Balance + 7-Day Sparkline + Quick Actions */}
         <div className="lg:col-span-5 relative overflow-hidden rounded-[28px] bg-[#141416] text-white p-6 flex flex-col justify-between gap-5 shadow-[0_16px_36px_rgba(17,17,20,0.18)]">
           <div
             aria-hidden="true"
@@ -310,12 +297,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
           />
 
           <div className="relative z-10 flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <div className="text-xs font-medium text-white/60">Total Vault Balance</div>
               <div className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight tabular-nums mt-1">
                 ${combinedVaultUsd.toFixed(2)}
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-white/75 tabular-nums">
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/75 tabular-nums">
                 <span className="text-[#4ADE80] font-semibold">
                   ${earnedUsdcBalance.toFixed(2)} USDC free
                 </span>
@@ -336,24 +323,46 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
             <button
               type="button"
-              onClick={onExpandVault3D}
-              className="min-h-[38px] px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/18 text-[11px] font-semibold text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              onClick={onOpenPollarFund}
+              className="min-h-[40px] px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/18 text-[11px] font-semibold text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
             >
-              <Box className="w-3.5 h-3.5 text-[#F16A2E]" />
-              <span>3D Vault</span>
+              <Sparkles className="w-3.5 h-3.5 text-[#F16A2E]" />
+              <span>Pollar Ramp</span>
             </button>
           </div>
 
-          {/* 4-Action Sleek Circular Button Strip (Fund, Withdraw, Stake, Squads) */}
-          <div className="relative z-10 grid grid-cols-4 gap-2.5 pt-2">
+          {/* Compact 7-day Vault Momentum Sparkline */}
+          <div className="relative z-10 rounded-2xl bg-white/[0.05] border border-white/10 px-3.5 py-2.5 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[11px] text-white/60 inline-flex items-center gap-1">
+                <TrendingUp className="w-3 h-3 text-[#4ADE80]" />
+                <span>Projected Split</span>
+              </div>
+              <div className="font-mono text-sm font-bold text-[#4ADE80] tabular-nums">
+                +${totalProjectedSplit.toFixed(2)} est.
+              </div>
+            </div>
+            <div className="w-28 shrink-0">
+              <SparklineSvg
+                values={vaultMomentumValues}
+                stroke="#F16A2E"
+                fillFrom="rgba(241, 106, 46, 0.28)"
+                className="w-full h-9"
+              />
+            </div>
+          </div>
+
+          {/* 4-Action Circular Button Strip (Fund, Withdraw, New Stake, Community) */}
+          <div className="relative z-10 grid grid-cols-4 gap-2 pt-1">
             <button
               type="button"
               onClick={() => {
+                setVaultFormError(null);
                 setVaultAmount(25);
                 setVaultToken('USDC');
                 setVaultModalMode('fund');
               }}
-              className="flex flex-col items-center gap-1.5 group"
+              className="flex flex-col items-center gap-1.5 group min-h-[44px]"
             >
               <span className="w-12 h-12 rounded-full bg-[#F16A2E] group-hover:bg-[#E05920] text-white flex items-center justify-center transition-colors shadow-sm">
                 <ArrowDownLeft className="w-5 h-5" />
@@ -364,11 +373,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <button
               type="button"
               onClick={() => {
-                setVaultAmount(Math.min(25, Math.max(5, Math.floor(earnedUsdcBalance))));
+                setVaultFormError(null);
+                setVaultAmount(Math.min(25, Math.max(5, Math.floor(earnedUsdcBalance) || 5)));
                 setVaultToken('USDC');
                 setVaultModalMode('withdraw');
               }}
-              className="flex flex-col items-center gap-1.5 group"
+              className="flex flex-col items-center gap-1.5 group min-h-[44px]"
             >
               <span className="w-12 h-12 rounded-full bg-white/12 group-hover:bg-white/20 text-white flex items-center justify-center transition-colors">
                 <ArrowUpRight className="w-5 h-5" />
@@ -379,7 +389,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <button
               type="button"
               onClick={onOpenMissions}
-              className="flex flex-col items-center gap-1.5 group"
+              className="flex flex-col items-center gap-1.5 group min-h-[44px]"
             >
               <span className="w-12 h-12 rounded-full bg-white group-hover:bg-[#FFF4EE] text-[#111114] flex items-center justify-center transition-colors">
                 <Plus className="w-5 h-5" />
@@ -390,7 +400,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <button
               type="button"
               onClick={() => onOpenSquadLobby('squad-7am-club')}
-              className="flex flex-col items-center gap-1.5 group"
+              className="flex flex-col items-center gap-1.5 group min-h-[44px]"
             >
               <span className="w-12 h-12 rounded-full bg-white/12 group-hover:bg-white/20 text-white flex items-center justify-center transition-colors">
                 <Users className="w-5 h-5" />
@@ -400,7 +410,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </div>
 
-        {/* Right Hero: Featured "Daily Challenge" Card (Haptive-inspired warm card with Stake-to-Verify Deadline) */}
+        {/* Right Hero: Featured "Daily Challenge" Card */}
         <div className="lg:col-span-7 actake-card p-6 flex flex-col justify-between gap-4">
           {nextStakeEntry ? (
             (() => {
@@ -422,13 +432,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                         Daily Challenge
                       </h2>
                       <p className="text-sm text-[#6B6663] tabular-nums">
-                        Do your plan before{' '}
+                        Complete proof before{' '}
                         <span className="font-bold text-[#111114]">{clockFmt.full}</span> ({dayText}
                         ) · <span className="text-[#F16A2E] font-semibold">In {cd.compact}</span>
                       </p>
 
                       {/* Overlapping Community Avatars */}
-                      <div className="pt-1 flex items-center gap-3">
+                      <div className="pt-1 flex flex-wrap items-center gap-3">
                         <div className="flex items-center -space-x-2">
                           {['AL', 'SA', 'NI'].map((init) => (
                             <div
@@ -448,7 +458,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       </div>
                     </div>
 
-                    <AlarmIllustrationSvg />
+                    <MascotDisplay
+                      variant="stage"
+                      size="xl"
+                      floating
+                      alt="Actake Accountability Guardian"
+                    />
                   </div>
 
                   {/* Stake-to-Verify Deadline Action Bar */}
@@ -463,7 +478,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     <button
                       type="button"
                       onClick={() => onTriggerTestAlarm(stake)}
-                      className="min-h-[42px] px-4 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                      className="min-h-[44px] px-5 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                     >
                       <BellRing className="w-3.5 h-3.5" />
                       <span>Verify / Simulate Alarm</span>
@@ -480,7 +495,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 </h2>
                 <p className="text-sm text-[#6B6663] max-w-md">
                   Lock USDC or 0%-fee SKR behind a daily deadline. Verify with a random live photo
-                  or workout move when your alarm rings.
+                  when your alarm rings.
                 </p>
                 <div className="pt-2">
                   <button
@@ -493,22 +508,26 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   </button>
                 </div>
               </div>
-              <AlarmIllustrationSvg />
+              <MascotDisplay
+                variant="stage"
+                size="xl"
+                floating
+                alt="Actake Accountability Guardian"
+              />
             </div>
           )}
         </div>
       </div>
 
-      {/* 7-Day Vertical Pill Streak Calendar (Matching Haptive Peach/Orange Pill Strip) */}
-      <section className="space-y-2">
-        <div className="grid grid-cols-7 gap-2 sm:gap-3">
+      {/* 7-Day Vertical Pill Streak Calendar */}
+      <section className="space-y-2" aria-label="7-day consistency streak">
+        <div className="grid grid-cols-7 gap-1.5 sm:gap-3">
           {weekDays.map((day) => (
             <div key={`${day.dayLabel}-${day.dateNum}`} className="flex flex-col items-center">
               <span className="text-[11px] font-semibold text-[#6B6663] mb-1.5">
                 {day.dayLabel}
               </span>
 
-              {/* Small active pointer triangle above today's orange pill */}
               <div className="h-2 flex items-center justify-center mb-1">
                 {day.isToday && (
                   <span
@@ -519,14 +538,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </div>
 
               <div
-                className={`w-full max-w-[68px] rounded-full py-2.5 px-1.5 flex flex-col items-center justify-between gap-2 min-h-[82px] transition-all ${
+                className={`w-full max-w-[68px] rounded-full py-2 px-1 flex flex-col items-center justify-between gap-1.5 min-h-[78px] sm:min-h-[82px] transition-all border ${
                   day.isToday
-                    ? 'bg-[#F38452] text-white shadow-[0_10px_22px_rgba(241,106,46,0.34)]'
-                    : 'bg-white text-[#111114] shadow-[0_4px_14px_rgba(24,20,18,0.04)]'
+                    ? 'bg-[#F38452] border-[#E87340] text-white shadow-[0_10px_22px_rgba(241,106,46,0.34)]'
+                    : 'bg-white border-[#EFE2D9] text-[#111114]'
                 }`}
               >
                 <span
-                  className={`w-9 h-9 rounded-full flex items-center justify-center font-display text-sm font-bold tabular-nums ${
+                  className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center font-display text-xs sm:text-sm font-bold tabular-nums ${
                     day.isToday
                       ? 'bg-white text-[#111114]'
                       : day.completed
@@ -546,7 +565,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       ? 'text-white'
                       : day.completed
                         ? 'text-[#16A34A]'
-                        : 'text-[#A09A96]'
+                        : 'text-[#877F7A]'
                   }`}
                 >
                   {day.isToday ? 'Today' : day.completed ? 'Done' : 'Plan'}
@@ -557,7 +576,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </section>
 
-      {/* Time-of-Day Filter Bar ("Available Hours") + Active Stakes + 3D Escrow Vault */}
+      {/* Active Stakes + Right Column (Escrow Breakdown + Live Community Pulse) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -573,14 +592,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <button
               type="button"
               onClick={onOpenMissions}
-              className="text-xs font-bold text-[#F16A2E] hover:text-[#D5551B] inline-flex items-center gap-1 whitespace-nowrap"
+              className="min-h-[40px] px-3 py-1.5 rounded-full text-xs font-bold text-[#F16A2E] hover:bg-[#FFF0E6] inline-flex items-center gap-1 whitespace-nowrap transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add Habit Stake</span>
             </button>
           </div>
 
-          {/* Interactive Time-of-Day Pill Buttons (White vs Solid Obsidian Black) */}
+          {/* Interactive Time-of-Day Filter Pills */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             {(
               [
@@ -596,10 +615,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   key={opt.id}
                   type="button"
                   onClick={() => setTimeFilter(opt.id)}
-                  className={`min-h-[40px] px-5 py-2 rounded-full text-xs font-semibold transition-all whitespace-nowrap shrink-0 ${
+                  className={`min-h-[44px] px-4 py-2 rounded-full text-xs font-semibold transition-all whitespace-nowrap shrink-0 border ${
                     active
-                      ? 'bg-[#111114] text-white shadow-sm'
-                      : 'bg-white text-[#111114] hover:bg-[#FFF9F5] shadow-[0_4px_12px_rgba(24,20,18,0.04)]'
+                      ? 'bg-[#111114] border-[#111114] text-white shadow-xs'
+                      : 'bg-white border-[#EFE2D9] text-[#111114] hover:bg-[#FFF9F5]'
                   }`}
                 >
                   {opt.label}
@@ -610,19 +629,27 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
           {/* Habit Stake Cards */}
           {filteredStakes.length === 0 ? (
-            <div className="actake-card p-6 text-center space-y-3">
-              <p className="text-sm text-[#6B6663]">
-                No locked habit deadlines in this time slot.
-              </p>
-              <button
-                type="button"
-                onClick={onOpenMissions}
-                className="min-h-[40px] px-4 py-2 rounded-full bg-[#111114] text-white text-xs font-semibold inline-flex items-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5 text-[#F16A2E]" />
-                <span>Schedule New Stake</span>
-              </button>
-            </div>
+            <EmptyState
+              showMascot
+              title={
+                timeFilter === 'all'
+                  ? 'No Active Habit Stakes Yet'
+                  : `No ${timeFilter} deadlines scheduled`
+              }
+              description={
+                timeFilter === 'all'
+                  ? 'Lock your first daily routine stake on Solana Devnet and arm a live AI verification alarm.'
+                  : 'Switch back to All Day or schedule a new habit stake for this time window.'
+              }
+              ctaLabel={timeFilter === 'all' ? 'Schedule New Stake' : 'Show All Deadlines'}
+              onCta={() => {
+                if (timeFilter === 'all') {
+                  onOpenMissions();
+                } else {
+                  setTimeFilter('all');
+                }
+              }}
+            />
           ) : (
             <div className="space-y-3.5">
               {filteredStakes.map(({ stake, nextTs, remainingMs }) => {
@@ -690,11 +717,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#F6EFEA]">
-                      <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#F6EFEA]">
+                      <div className="flex flex-wrap items-center gap-2.5 min-w-0">
                         <span className="inline-flex items-center gap-1.5 text-xs text-[#6B6663] truncate">
                           <Volume2 className="w-3.5 h-3.5 text-[#F16A2E] shrink-0" />
-                          <span className="truncate">Random AI proof unlocks at {fmt.full}</span>
+                          <span className="truncate">AI proof unlocks at {fmt.full}</span>
                         </span>
                         {stake.paidVia === 'pollar' && (
                           <span className="text-[11px] font-bold text-[#F16A2E] whitespace-nowrap shrink-0">
@@ -716,7 +743,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       <button
                         type="button"
                         onClick={() => onTriggerTestAlarm(stake)}
-                        className="min-h-[34px] px-3.5 py-1 rounded-full bg-[#FFF2EA] hover:bg-[#F16A2E] text-[#F16A2E] hover:text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+                        className="min-h-[40px] px-4 py-1.5 rounded-full bg-[#FFF2EA] hover:bg-[#F16A2E] text-[#F16A2E] hover:text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0"
                       >
                         Test Alarm
                       </button>
@@ -728,17 +755,100 @@ export const HomeView: React.FC<HomeViewProps> = ({
           )}
         </div>
 
-        {/* Right Column: Interactive 3D Solana Escrow Vault + Live Community Proof Pulse */}
+        {/* Right Column: Native Escrow Protection Card (Replaces 3D Vault) + Live Community Pulse */}
         <div className="lg:col-span-5 space-y-5">
-          <EscrowVault3D
-            vaultState={activeStakes.some((a) => a.stake.status === 'ringing') ? 'ringing' : 'locked'}
-            totalLockedUsd={totalLockedUsd}
-            activeStakesCount={activeStakes.length}
-            onToggleExpand={onExpandVault3D}
-            className="h-[290px] sm:h-[320px] w-full rounded-[28px]"
-          />
+          {/* Escrow Protection & Pot Breakdown Card */}
+          <div className="actake-card p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="w-10 h-10 rounded-2xl bg-[#111114] text-[#F16A2E] flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5" />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="font-display text-base font-extrabold text-[#111114]">
+                    Escrow Vault Summary
+                  </h3>
+                  <p className="text-xs text-[#6B6663]">
+                    Program-derived Solana Devnet accountability lock
+                  </p>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-[#ECFDF5] text-[#16A34A] text-[11px] font-bold whitespace-nowrap shrink-0">
+                {activeStakes.length > 0 ? 'Armed' : 'Standby'}
+              </span>
+            </div>
 
-          {globalActivity && globalActivity.recentCheckins.length > 0 && (
+            <div className="grid grid-cols-2 gap-2.5 tabular-nums">
+              <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-3.5">
+                <div className="text-[11px] font-semibold text-[#6B6663]">Locked Principal</div>
+                <div className="font-display text-xl font-extrabold text-[#111114] mt-0.5">
+                  ${totalLockedUsd.toFixed(2)}
+                </div>
+                <div className="text-[11px] text-[#877F7A] mt-0.5">
+                  {activeStakes.length} active {activeStakes.length === 1 ? 'stake' : 'stakes'}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-[#ECFDF5] border border-[#BBF7D0] p-3.5">
+                <div className="text-[11px] font-semibold text-[#166534]">Est. Slashed Split</div>
+                <div className="font-display text-xl font-extrabold text-[#14532D] mt-0.5">
+                  +${totalProjectedSplit.toFixed(2)}
+                </div>
+                <div className="text-[11px] text-[#166534] mt-0.5">
+                  {skrStakeCount > 0 ? `${skrStakeCount} at 0% SKR fee` : '1.5% USDC fee'}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-4 py-3 flex items-center justify-between gap-2 text-xs">
+              <span className="text-[#6B6663] font-medium inline-flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-[#F16A2E]" />
+                <span>Devnet SOL Gas</span>
+              </span>
+              <span className="font-mono font-bold text-[#111114] tabular-nums">
+                {devnet.solBalance !== null ? `${devnet.solBalance.toFixed(4)} SOL` : 'Syncing...'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={onOpenMissions}
+                className="min-h-[44px] px-4 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Lock Stake</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenSquadLobby('squad-7am-club')}
+                className="min-h-[44px] px-4 py-2 rounded-full bg-[#FFF4EE] hover:bg-[#FFE5D6] text-[#111114] text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Users className="w-3.5 h-3.5 text-[#F16A2E]" />
+                <span>Open Lobby</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Live Community Pulse with Skeleton, Error Retry, and Empty State */}
+          {globalActivityLoading && !globalActivity ? (
+            <ActivityPulseSkeleton />
+          ) : globalActivityError && !globalActivity ? (
+            <ErrorStateCard
+              title="Live Community Pulse Unavailable"
+              message={globalActivityError}
+              onRetry={onRetryGlobalActivity}
+              retryLabel="Retry Feed"
+            />
+          ) : !globalActivity || globalActivity.recentCheckins.length === 0 ? (
+            <EmptyState
+              icon={<Users className="w-5 h-5" />}
+              title="No Recent Check-Ins Yet"
+              description="Verified community proofs appear here in real time as members beat their daily alarms."
+              ctaLabel="Inspect Community Lobby"
+              onCta={() => onOpenSquadLobby('squad-7am-club')}
+            />
+          ) : (
             <div className="actake-card p-5 space-y-3.5">
               <div className="flex items-center justify-between gap-2">
                 <div>
@@ -750,13 +860,27 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     {globalActivity.totalSkrStaked.toFixed(0)} SKR active
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onOpenSquadLobby('squad-7am-club')}
-                  className="text-xs font-semibold text-[#F16A2E] hover:underline whitespace-nowrap"
-                >
-                  Inspect Lobby
-                </button>
+                <div className="flex items-center gap-2">
+                  {onRetryGlobalActivity && (
+                    <button
+                      type="button"
+                      onClick={onRetryGlobalActivity}
+                      aria-label="Refresh live community pulse"
+                      className="w-9 h-9 rounded-full bg-[#FFF4EE] hover:bg-[#FFE5D6] flex items-center justify-center text-[#F16A2E] transition-colors"
+                    >
+                      <RefreshCw
+                        className={`w-3.5 h-3.5 ${globalActivityLoading ? 'animate-spin' : ''}`}
+                      />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onOpenSquadLobby('squad-7am-club')}
+                    className="min-h-[36px] px-3 rounded-full text-xs font-bold text-[#F16A2E] hover:bg-[#FFF0E6] whitespace-nowrap transition-colors"
+                  >
+                    Inspect Lobby
+                  </button>
+                </div>
               </div>
 
               <div className="divide-y divide-[#F6EFEA]">
@@ -797,18 +921,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </div>
 
-      {/* Fund / Withdraw Vault Sheet Modal (Pollar Ramp & QR + Local Devnet Vault) */}
+      {/* Fund / Withdraw Vault Sheet Modal */}
       {vaultModalMode && (
-        <div className="fixed inset-0 z-50 bg-[#111114]/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-[28px] bg-white p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div
+          onClick={() => setVaultModalMode(null)}
+          className="fixed inset-0 z-50 bg-[#111114]/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-t-[28px] sm:rounded-[28px] bg-white p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto"
+          >
             <div className="flex items-center justify-between">
               <h3 className="font-display text-xl font-extrabold text-[#111114]">
                 {vaultModalMode === 'fund' ? 'Fund Wallet with Pollar' : 'Withdraw / Send Funds'}
               </h3>
               <button
                 type="button"
+                aria-label="Close vault modal"
                 onClick={() => setVaultModalMode(null)}
-                className="w-9 h-9 rounded-full bg-[#FFF4EE] flex items-center justify-center text-[#111114]"
+                className="w-11 h-11 rounded-full bg-[#FFF4EE] hover:bg-[#FFE5D6] flex items-center justify-center text-[#111114] transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -848,7 +979,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                         onOpenPollarFund();
                       }
                     }}
-                    className="min-h-[42px] px-3 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                    className="min-h-[44px] px-3 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
                   >
                     <ArrowDownLeft className="w-3.5 h-3.5" />
                     <span>Pollar Fiat Ramp</span>
@@ -863,7 +994,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                         onOpenPollarFund();
                       }
                     }}
-                    className="min-h-[42px] px-3 py-2 rounded-full bg-white/14 hover:bg-white/22 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                    className="min-h-[44px] px-3 py-2 rounded-full bg-white/14 hover:bg-white/22 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
                   >
                     <QrCode className="w-3.5 h-3.5" />
                     <span>Receive QR</span>
@@ -880,7 +1011,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       onOpenPollarFund();
                     }
                   }}
-                  className="w-full min-h-[42px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                  className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
                 >
                   <ArrowUpRight className="w-3.5 h-3.5" />
                   <span>Open Pollar Send / Withdraw</span>
@@ -902,11 +1033,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   <button
                     key={tok}
                     type="button"
-                    onClick={() => setVaultToken(tok)}
-                    className={`min-h-[42px] rounded-full text-xs font-bold transition-colors ${
+                    onClick={() => {
+                      setVaultToken(tok);
+                      setVaultFormError(null);
+                    }}
+                    className={`min-h-[44px] rounded-full text-xs font-bold transition-colors ${
                       vaultToken === tok
                         ? 'bg-[#111114] text-white'
-                        : 'bg-[#FFF4EE] text-[#111114]'
+                        : 'bg-[#FFF4EE] text-[#111114] hover:bg-[#FFE5D6]'
                     }`}
                   >
                     {tok === 'SKR' ? 'SKR (0% Fee)' : 'USDC (SPL)'}
@@ -915,25 +1049,40 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[#6B6663] mb-1.5">
-                  Amount ({vaultToken})
-                </label>
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <label htmlFor="vault-amount-input" className="font-semibold text-[#6B6663]">
+                    Amount ({vaultToken})
+                  </label>
+                  {vaultModalMode === 'withdraw' && (
+                    <span className="font-mono text-[11px] text-[#877F7A] tabular-nums">
+                      Available: $
+                      {(vaultToken === 'USDC' ? earnedUsdcBalance : earnedSkrBalance).toFixed(2)}
+                    </span>
+                  )}
+                </div>
                 <input
+                  id="vault-amount-input"
                   type="number"
                   min={1}
                   step="any"
                   required
                   value={vaultAmount}
-                  onChange={(e) => setVaultAmount(Math.max(1, Number(e.target.value)))}
-                  className="w-full rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-4 py-3 font-mono text-lg font-bold text-[#111114] focus:outline-none focus:border-[#F16A2E]"
+                  onChange={(e) => {
+                    setVaultFormError(null);
+                    setVaultAmount(Number(e.target.value));
+                  }}
+                  className="w-full min-h-[48px] rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-4 py-3 font-mono text-lg font-bold text-[#111114] focus:outline-none focus:border-[#F16A2E]"
                 />
                 <div className="flex gap-2 mt-2">
                   {[10, 25, 50, 100].map((preset) => (
                     <button
                       key={preset}
                       type="button"
-                      onClick={() => setVaultAmount(preset)}
-                      className="flex-1 py-1.5 rounded-full bg-[#FFF4EE] hover:bg-[#FFE5D6] text-xs font-mono font-semibold text-[#111114]"
+                      onClick={() => {
+                        setVaultFormError(null);
+                        setVaultAmount(preset);
+                      }}
+                      className="flex-1 min-h-[38px] py-1.5 rounded-full bg-[#FFF4EE] hover:bg-[#FFE5D6] text-xs font-mono font-semibold text-[#111114] transition-colors"
                     >
                       ${preset}
                     </button>
@@ -941,13 +1090,23 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 </div>
               </div>
 
+              {vaultFormError && (
+                <div
+                  role="alert"
+                  className="rounded-xl bg-[#FEF2F2] border border-[#FECACA] px-3.5 py-2.5 text-xs text-[#991B1B] flex items-center gap-2"
+                >
+                  <AlertCircle className="w-4 h-4 text-[#DC2626] shrink-0" />
+                  <span>{vaultFormError}</span>
+                </div>
+              )}
+
               <button
                 type="submit"
-                className="w-full min-h-[46px] rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold transition-colors"
+                className="w-full min-h-[48px] rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold transition-colors"
               >
                 {vaultModalMode === 'fund'
-                  ? `Add $${vaultAmount.toFixed(2)} ${vaultToken} to Devnet Vault`
-                  : `Withdraw $${vaultAmount.toFixed(2)} ${vaultToken}`}
+                  ? `Add $${Number.isFinite(vaultAmount) ? vaultAmount.toFixed(2) : '0.00'} ${vaultToken} to Devnet Vault`
+                  : `Withdraw $${Number.isFinite(vaultAmount) ? vaultAmount.toFixed(2) : '0.00'} ${vaultToken}`}
               </button>
             </form>
           </div>

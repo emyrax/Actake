@@ -24,6 +24,7 @@ import {
 import { isPollarConfigured } from '../solana/pollarBridge';
 import { useActakePollar } from '../context/ActakePollarProvider';
 import { shortenAddress } from '../solana/walletManager';
+import { DiagnosticsGridSkeleton, ErrorStateCard } from './UiPrimitives';
 
 interface ReadinessDrawerProps {
   wallet: WalletSession;
@@ -77,7 +78,7 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
   }, []);
 
   useEffect(() => {
-    fetchReadiness();
+    void fetchReadiness();
   }, [fetchReadiness]);
 
   const copyValue = async (label: string, val: string) => {
@@ -108,17 +109,29 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#111114]/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-[32px] sm:rounded-[32px] bg-[#FFF8F4] text-[#111114] shadow-2xl border border-[#F2E2D8]">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="readiness-drawer-title"
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-[#111114]/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-[32px] sm:rounded-[32px] bg-[#FFF8F4] text-[#111114] shadow-2xl border border-[#F2E2D8]"
+      >
         {/* Sticky Header */}
         <div className="sticky top-0 z-10 bg-[#FFF8F4]/95 backdrop-blur-md px-6 py-5 border-b border-[#F2E2D8] flex items-center justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <div className="text-xs font-bold text-[#F16A2E]">Solana Devnet Diagnostics</div>
-            <h2 className="font-display text-xl font-extrabold text-[#111114]">
+            <h2
+              id="readiness-drawer-title"
+              className="font-display text-xl font-extrabold text-[#111114] truncate"
+            >
               Setup &amp; Anchor Escrow Readiness
             </h2>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -127,7 +140,7 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
               }}
               disabled={loading}
               aria-label="Refresh diagnostics"
-              className="w-10 h-10 rounded-full bg-white border border-[#F0E3DB] hover:bg-[#FFF2EA] flex items-center justify-center text-[#111114] transition-colors"
+              className="w-11 h-11 rounded-full bg-white border border-[#F0E3DB] hover:bg-[#FFF2EA] flex items-center justify-center text-[#111114] transition-colors"
             >
               <RefreshCw className={`w-4 h-4 text-[#F16A2E] ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -135,7 +148,7 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
               type="button"
               onClick={onClose}
               aria-label="Close diagnostics"
-              className="w-10 h-10 rounded-full bg-[#111114] text-white hover:bg-[#F16A2E] flex items-center justify-center transition-colors"
+              className="w-11 h-11 rounded-full bg-[#111114] text-white hover:bg-[#F16A2E] flex items-center justify-center transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -144,19 +157,22 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
 
         <div className="p-6 space-y-5">
           {error && (
-            <div className="rounded-2xl bg-[#FEF2F2] border border-[#FECACA] px-4 py-3 text-xs text-[#991B1B] font-medium">
-              {error}
-            </div>
+            <ErrorStateCard
+              title="Diagnostics Check Failed"
+              message={error}
+              onRetry={() => void fetchReadiness()}
+              retryLabel="Retry Check"
+            />
           )}
 
           {/* Connected Wallet + Devnet SOL Airdrop Bar */}
           <div className="rounded-3xl bg-[#141416] text-white p-5 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <div className="text-[11px] font-semibold text-white/60">
                   Connected Devnet Wallet ({wallet.connectionKind.toUpperCase()})
                 </div>
-                <div className="font-mono text-sm font-bold mt-0.5 flex items-center gap-2">
+                <div className="font-mono text-sm font-bold mt-0.5 flex flex-wrap items-center gap-2">
                   <span>{shortenAddress(wallet.publicKey, 8)}</span>
                   <a
                     href={buildDevnetExplorerAddressUrl(wallet.publicKey)}
@@ -180,8 +196,8 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
               <button
                 type="button"
                 disabled={airdropping}
-                onClick={handleRequestAirdrop}
-                className="min-h-[42px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DF5B20] disabled:opacity-60 text-white text-xs font-bold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0"
+                onClick={() => void handleRequestAirdrop()}
+                className="min-h-[44px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DF5B20] disabled:opacity-60 text-white text-xs font-bold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0"
               >
                 <Coins className="w-4 h-4" />
                 <span>{airdropping ? 'Requesting SOL...' : 'Airdrop 1 Devnet SOL'}</span>
@@ -210,159 +226,163 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
             )}
           </div>
 
-          {/* Service & Secret Status Grid (Read-Only — No Secret Inputs) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            {/* Solana Devnet RPC */}
-            <div className="actake-card p-4 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-2 text-xs font-bold text-[#111114]">
-                  <Globe className="w-4 h-4 text-[#F16A2E]" />
-                  <span>Solana RPC</span>
-                </span>
-                <StatusText
-                  ok={Boolean(report?.solanaRpc.reachable)}
-                  okLabel={report?.solanaRpc.customEndpoint ? 'Custom RPC' : 'Devnet Default'}
-                  warnLabel="Unreachable"
-                />
-              </div>
-              <p className="text-xs text-[#6B6663] tabular-nums">
-                {report?.solanaRpc.liveSlot
-                  ? `Cluster: ${report.solanaRpc.cluster} · Slot ${report.solanaRpc.liveSlot.toLocaleString()} (${report.solanaRpc.latencyMs}ms)`
-                  : 'Checking Solana Devnet endpoint...'}
-              </p>
-              {!report?.solanaRpc.customEndpoint && (
-                <p className="text-[11px] text-[#877F7A]">
-                  Optional: Set <code className="font-mono">SOLANA_RPC_URL</code> in Secrets for
-                  higher rate limits.
+          {/* Layout-Matched Skeleton Grid while Fetching */}
+          {loading && !report ? (
+            <DiagnosticsGridSkeleton />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* Solana Devnet RPC */}
+              <div className="actake-card p-4 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2 text-xs font-bold text-[#111114]">
+                    <Globe className="w-4 h-4 text-[#F16A2E]" />
+                    <span>Solana RPC</span>
+                  </span>
+                  <StatusText
+                    ok={Boolean(report?.solanaRpc.reachable)}
+                    okLabel={report?.solanaRpc.customEndpoint ? 'Custom RPC' : 'Devnet Default'}
+                    warnLabel="Unreachable"
+                  />
+                </div>
+                <p className="text-xs text-[#6B6663] tabular-nums">
+                  {report?.solanaRpc.liveSlot
+                    ? `Cluster: ${report.solanaRpc.cluster} · Slot ${report.solanaRpc.liveSlot.toLocaleString()} (${report.solanaRpc.latencyMs}ms)`
+                    : 'Checking Solana Devnet endpoint...'}
                 </p>
-              )}
-            </div>
-
-            {/* Supabase PostgreSQL */}
-            <div className="actake-card p-4 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-2 text-xs font-bold text-[#111114]">
-                  <Database className="w-4 h-4 text-[#4F46E5]" />
-                  <span>Supabase Database</span>
-                </span>
-                <StatusText
-                  ok={Boolean(report?.supabase.reachable)}
-                  okLabel="PostgreSQL Live"
-                  warnLabel={report?.supabase.configured ? 'Run Schema SQL' : 'Memory Mode'}
-                />
+                {!report?.solanaRpc.customEndpoint && (
+                  <p className="text-[11px] text-[#877F7A]">
+                    Optional: Set <code className="font-mono">SOLANA_RPC_URL</code> in env vars for
+                    higher rate limits.
+                  </p>
+                )}
               </div>
-              <p className="text-xs text-[#6B6663]">
-                {report?.supabase.reachable
-                  ? 'Pools, participants, check-ins, and settlements persist in Supabase.'
-                  : report?.supabase.detail ||
-                    'Add SUPABASE_URL & SUPABASE_SERVICE_ROLE_KEY in AI Studio Secrets.'}
-              </p>
-              {report?.supabase.configured && !report?.supabase.reachable && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const resp = await fetch('/api/system/supabase-schema');
-                      if (resp.ok) {
-                        const sql = await resp.text();
-                        await copyValue('supabaseSql', sql);
+
+              {/* Supabase PostgreSQL */}
+              <div className="actake-card p-4 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2 text-xs font-bold text-[#111114]">
+                    <Database className="w-4 h-4 text-[#4F46E5]" />
+                    <span>Supabase Database</span>
+                  </span>
+                  <StatusText
+                    ok={Boolean(report?.supabase.reachable)}
+                    okLabel="PostgreSQL Live"
+                    warnLabel={report?.supabase.configured ? 'Run Schema SQL' : 'Memory Mode'}
+                  />
+                </div>
+                <p className="text-xs text-[#6B6663]">
+                  {report?.supabase.reachable
+                    ? 'Pools, participants, check-ins, and settlements persist in Supabase.'
+                    : report?.supabase.detail ||
+                      'Add SUPABASE_URL & SUPABASE_SERVICE_ROLE_KEY in environment variables.'}
+                </p>
+                {report?.supabase.configured && !report?.supabase.reachable && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const resp = await fetch('/api/system/supabase-schema');
+                        if (resp.ok) {
+                          const sql = await resp.text();
+                          await copyValue('supabaseSql', sql);
+                        }
+                      } catch {
+                        // ignore
                       }
-                    } catch {
-                      // ignore
+                    }}
+                    className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#EEF2FF] hover:bg-[#4F46E5] text-[#4F46E5] hover:text-white text-[11px] font-bold transition-colors"
+                  >
+                    {copiedField === 'supabaseSql' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>SQL Copied! Paste in Supabase SQL Editor</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy supabase/schema.sql</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {/* Pollar Protocol + MWA */}
+              <div className="actake-card p-4 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2 text-xs font-bold text-[#111114]">
+                    <Smartphone className="w-4 h-4 text-[#F16A2E]" />
+                    <span>Pollar Protocol &amp; MWA</span>
+                  </span>
+                  <StatusText
+                    ok={pollarConfigured && !pollarOriginBlocked}
+                    okLabel="Pollar Live"
+                    warnLabel={
+                      !pollarConfigured
+                        ? 'API Key Missing'
+                        : pollar.configErrorCode === 'RATE_LIMITED'
+                          ? 'Rate Limited'
+                          : pollar.configErrorCode === 'ORIGIN_NOT_ALLOWED'
+                            ? 'Whitelist Origin'
+                            : 'Config Error'
                     }
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#EEF2FF] hover:bg-[#4F46E5] text-[#4F46E5] hover:text-white text-[11px] font-bold transition-colors"
-                >
-                  {copiedField === 'supabaseSql' ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>SQL Copied! Paste in Supabase SQL Editor</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy supabase/schema.sql</span>
-                    </>
+                  />
+                </div>
+                <p className="text-xs text-[#6B6663]">
+                  {platform.mwaSupported
+                    ? 'Android Chrome MWA active. '
+                    : 'MWA activates on Android Chrome. '}
+                  {!pollarConfigured
+                    ? 'Add VITE_POLLAR_API_KEY from dashboard.pollar.xyz (enable Solana).'
+                    : pollar.configErrorCode === 'RATE_LIMITED'
+                      ? 'Pollar temporarily throttled requests (429). Wait ~30 seconds and retry.'
+                      : pollarOriginBlocked
+                        ? 'Pollar returned 403 ORIGIN_NOT_ALLOWED. Whitelist this app origin in dashboard.pollar.xyz → Developers → Websites.'
+                        : 'Pollar Sign-In, Fiat Ramp funding & Solana SPL payments enabled.'}
+                </p>
+                {pollarOriginBlocked &&
+                  pollar.configErrorCode !== 'RATE_LIMITED' &&
+                  pollar.currentOrigin && (
+                    <button
+                      type="button"
+                      onClick={() => void copyValue('pollarOrigin', pollar.currentOrigin)}
+                      className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFF2EA] hover:bg-[#F16A2E] text-[#F16A2E] hover:text-white text-[11px] font-bold transition-colors"
+                    >
+                      {copiedField === 'pollarOrigin' ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Origin Copied! Paste in Pollar Dashboard</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy App Origin URL</span>
+                        </>
+                      )}
+                    </button>
                   )}
-                </button>
-              )}
-            </div>
-
-            {/* Pollar Protocol + MWA */}
-            <div className="actake-card p-4 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-2 text-xs font-bold text-[#111114]">
-                  <Smartphone className="w-4 h-4 text-[#F16A2E]" />
-                  <span>Pollar Protocol &amp; MWA</span>
-                </span>
-                <StatusText
-                  ok={pollarConfigured && !pollarOriginBlocked}
-                  okLabel="Pollar Live"
-                  warnLabel={
-                    !pollarConfigured
-                      ? 'API Key Missing'
-                      : pollar.configErrorCode === 'RATE_LIMITED'
-                        ? 'Rate Limited'
-                        : pollar.configErrorCode === 'ORIGIN_NOT_ALLOWED'
-                          ? 'Whitelist Origin'
-                          : 'Config Error'
-                  }
-                />
               </div>
-              <p className="text-xs text-[#6B6663]">
-                {platform.mwaSupported
-                  ? 'Android Chrome MWA active. '
-                  : 'MWA activates on Android Chrome. '}
-                {!pollarConfigured
-                  ? 'Add VITE_POLLAR_API_KEY from dashboard.pollar.xyz (enable Solana) in Secrets.'
-                  : pollar.configErrorCode === 'RATE_LIMITED'
-                    ? 'Pollar temporarily throttled requests (429). Wait ~30 seconds and retry.'
-                    : pollarOriginBlocked
-                      ? 'Pollar returned 403 ORIGIN_NOT_ALLOWED. Whitelist this app origin in dashboard.pollar.xyz → Developers → Websites.'
-                      : 'Pollar Sign-In, Fiat Ramp funding & Solana SPL payments enabled.'}
-              </p>
-              {pollarOriginBlocked &&
-                pollar.configErrorCode !== 'RATE_LIMITED' &&
-                pollar.currentOrigin && (
-                <button
-                  type="button"
-                  onClick={() => copyValue('pollarOrigin', pollar.currentOrigin)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFF2EA] hover:bg-[#F16A2E] text-[#F16A2E] hover:text-white text-[11px] font-bold transition-colors"
-                >
-                  {copiedField === 'pollarOrigin' ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Origin Copied! Paste in Pollar Dashboard</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy App Origin URL</span>
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
 
-            {/* Gemini Vision Oracle */}
-            <div className="actake-card p-4 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-2 text-xs font-bold text-[#111114]">
-                  <Sparkles className="w-4 h-4 text-[#16A34A]" />
-                  <span>Gemini Vision Oracle</span>
-                </span>
-                <StatusText
-                  ok={Boolean(report?.gemini.configured)}
-                  okLabel="Configured"
-                  warnLabel="Missing Key"
-                />
+              {/* Gemini Vision Oracle */}
+              <div className="actake-card p-4 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2 text-xs font-bold text-[#111114]">
+                    <Sparkles className="w-4 h-4 text-[#16A34A]" />
+                    <span>Gemini Vision Oracle</span>
+                  </span>
+                  <StatusText
+                    ok={Boolean(report?.gemini.configured)}
+                    okLabel="Configured"
+                    warnLabel="Missing Key"
+                  />
+                </div>
+                <p className="text-xs text-[#6B6663]">
+                  Server-side live photo verification &amp; randomized anti-cheat object/workout
+                  generator.
+                </p>
               </div>
-              <p className="text-xs text-[#6B6663]">
-                Server-side live photo verification &amp; randomized anti-cheat object/workout
-                generator.
-              </p>
             </div>
-          </div>
+          )}
 
           {/* Ed25519 Oracle Public Key & Anchor Escrow Program Section */}
           {report && (
@@ -389,8 +409,8 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
                     </span>
                     <button
                       type="button"
-                      onClick={() => copyValue('oracleHex', report.oracle.publicKeyHex)}
-                      className="inline-flex items-center gap-1 font-semibold text-[#F16A2E] hover:underline"
+                      onClick={() => void copyValue('oracleHex', report.oracle.publicKeyHex)}
+                      className="min-h-[32px] inline-flex items-center gap-1 font-bold text-[#F16A2E] hover:underline"
                     >
                       {copiedField === 'oracleHex' ? (
                         <>
@@ -441,8 +461,8 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
                       Smart contract source is ready at{' '}
                       <code className="font-mono">programs/actake_escrow/</code>. Deploy with{' '}
                       <code className="font-mono">anchor deploy --provider.cluster devnet</code>{' '}
-                      and set <code className="font-mono">VITE_ACTAKE_ESCROW_PROGRAM_ID</code> in
-                      Secrets to switch from Devnet Memo receipts to full PDA token vaults.
+                      and set <code className="font-mono">VITE_ACTAKE_ESCROW_PROGRAM_ID</code> to
+                      switch from Devnet Memo receipts to full PDA token vaults.
                     </p>
                   )}
                 </div>
