@@ -369,7 +369,7 @@ export const PollarModal: React.FC<PollarModalProps> = ({
                   <ArrowDownLeft className="w-4 h-4" />
                 </span>
                 <div className="font-display text-xs font-extrabold text-[#111114]">
-                  Buy / Fiat Ramp
+                  Pollar RAMP
                 </div>
                 <p className="text-[11px] text-[#6B6663] leading-snug">
                   Fund wallet with card or local bank rails

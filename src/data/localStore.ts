@@ -109,6 +109,7 @@ export const DEFAULT_GEO_HUNTS: GeoHuntZone[] = [
 ];
 
 export interface PersistedUserData {
+  schemaVersion?: number;
   stakes: StakeCommitment[];
   customCategories: HabitCategory[];
   recentVerifiedItems: string[];
@@ -121,94 +122,22 @@ export interface PersistedUserData {
   earnedSkrBalance: number;
 }
 
+const CURRENT_USER_DATA_SCHEMA = 2;
+const LEGACY_SEED_STAKE_IDS = new Set(['stake-seed-morning', 'stake-seed-gym']);
+const LEGACY_SEED_HISTORY_IDS = new Set(['hist-1', 'hist-2', 'hist-3']);
+const LEGACY_SEED_RECENT_ITEMS = ['Coffee Mug', 'Keys or Keychain'];
+
 function getStorageKey(publicKey: string): string {
   return `actake_store_v1_${publicKey}`;
 }
 
-export function createSeedUserData(publicKey: string): PersistedUserData {
-  const shortKey = publicKey.slice(0, 8);
+export function createSeedUserData(_publicKey: string): PersistedUserData {
   return {
-    stakes: [
-      {
-        id: 'stake-seed-morning',
-        categoryId: 'morning_wakeup',
-        categoryName: 'Morning Wakeup',
-        environmentHint:
-          'Relatable everyday morning items like a coffee mug, glass of water, bathroom sink, towel, opened curtains, slippers, hairbrush, keys, or breakfast bowl',
-        amount: 15,
-        token: 'USDC',
-        protocolFeePct: 1.5,
-        alarmHour: 6,
-        alarmMinute: 0,
-        alarmSound: 'siren',
-        escrowPda: `ACTK${shortKey}9xWakePoolEscrowPDA7k2m`,
-        joinTxSignature: `5vActkJoin${shortKey}99xDevnetEscrowSig4m2`,
-        recentBlockhash: 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N',
-        createdAt: Date.now() - 3 * 60 * 60 * 1000,
-        status: 'locked',
-        squadName: '7AM Campus Wake Club',
-        slashedBonusEstimate: 3.4,
-      },
-      {
-        id: 'stake-seed-gym',
-        categoryId: 'gym_fitness',
-        categoryName: 'Gym & Fitness',
-        environmentHint:
-          'Gym equipment, dumbbells, running shoes, workout water bottle, yoga mat, gym bag, or live bodyweight moves like push-ups, squats, or plank',
-        amount: 25,
-        token: 'SKR',
-        protocolFeePct: 0,
-        alarmHour: 7,
-        alarmMinute: 30,
-        alarmSound: 'mayhem',
-        escrowPda: `ACTK${shortKey}4zGymPoolEscrowPDA3q9n`,
-        joinTxSignature: `3kActkJoin${shortKey}88yToken2022SkrSig9p1`,
-        recentBlockhash: 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N',
-        createdAt: Date.now() - 1 * 60 * 60 * 1000,
-        status: 'locked',
-        slashedBonusEstimate: 4.8,
-      },
-    ],
+    schemaVersion: CURRENT_USER_DATA_SCHEMA,
+    stakes: [],
     customCategories: [],
-    recentVerifiedItems: ['Coffee Mug', 'Keys or Keychain'],
-    history: [
-      {
-        id: 'hist-1',
-        dateIso: new Date(Date.now() - 86_400_000).toISOString(),
-        habitTitle: 'Morning Wakeup',
-        verifiedItem: 'Toothbrush',
-        token: 'USDC',
-        principal: 15,
-        bonus: 3.4,
-        totalPayout: 18.4,
-        txSignature: '4xClaimPayoutDevnetSig8a9c11k7mN2pQ',
-        status: 'claimed',
-      },
-      {
-        id: 'hist-2',
-        dateIso: new Date(Date.now() - 2 * 86_400_000).toISOString(),
-        habitTitle: 'Gym & Fitness',
-        verifiedItem: 'Dumbbell or Water Jug',
-        token: 'SKR',
-        principal: 20,
-        bonus: 5.2,
-        totalPayout: 25.2,
-        txSignature: '2yClaimSkrZeroFeeSig5b8f22r9tV4xW',
-        status: 'claimed',
-      },
-      {
-        id: 'hist-3',
-        dateIso: new Date(Date.now() - 3 * 86_400_000).toISOString(),
-        habitTitle: 'Study Session',
-        verifiedItem: 'Open Book or Notebook',
-        token: 'USDC',
-        principal: 10,
-        bonus: 2.1,
-        totalPayout: 12.1,
-        txSignature: '6zClaimStudyPoolSig9c4d11m2nK8vJ',
-        status: 'claimed',
-      },
-    ],
+    recentVerifiedItems: [],
+    history: [],
     squads: [
       {
         id: 'squad-7am-club',
@@ -502,10 +431,80 @@ export function createSeedUserData(publicKey: string): PersistedUserData {
       strictMode: true,
       volume: 0.85,
     },
-    streakDays: 43,
-    actPoints: 1840,
-    earnedUsdcBalance: 142.5,
-    earnedSkrBalance: 65.0,
+    streakDays: 0,
+    actPoints: 0,
+    earnedUsdcBalance: 0,
+    earnedSkrBalance: 0,
+  };
+}
+
+function migrateLegacySeedUserData(raw: PersistedUserData): PersistedUserData {
+  if ((raw.schemaVersion ?? 1) >= CURRENT_USER_DATA_SCHEMA) {
+    return raw;
+  }
+
+  const realStakes = Array.isArray(raw.stakes)
+    ? raw.stakes.filter((s) => !LEGACY_SEED_STAKE_IDS.has(s.id))
+    : [];
+  const realHistory = Array.isArray(raw.history)
+    ? raw.history.filter((h) => !LEGACY_SEED_HISTORY_IDS.has(h.id))
+    : [];
+
+  const hadOnlySeedRecentItems =
+    Array.isArray(raw.recentVerifiedItems) &&
+    raw.recentVerifiedItems.length === LEGACY_SEED_RECENT_ITEMS.length &&
+    raw.recentVerifiedItems.every((item, idx) => item === LEGACY_SEED_RECENT_ITEMS[idx]);
+
+  const cleanedRecentItems =
+    realHistory.length === 0 && hadOnlySeedRecentItems
+      ? []
+      : Array.isArray(raw.recentVerifiedItems)
+        ? raw.recentVerifiedItems
+        : [];
+
+  const rawUsdc = Number.isFinite(raw.earnedUsdcBalance) ? raw.earnedUsdcBalance : 0;
+  const rawSkr = Number.isFinite(raw.earnedSkrBalance) ? raw.earnedSkrBalance : 0;
+  const rawStreak = Number.isFinite(raw.streakDays) ? raw.streakDays : 0;
+  const rawPoints = Number.isFinite(raw.actPoints) ? raw.actPoints : 0;
+
+  const cleanedUsdc =
+    realHistory.length === 0
+      ? 0
+      : rawUsdc >= 142.5
+        ? Math.max(0, Number((rawUsdc - 142.5).toFixed(2)))
+        : rawUsdc;
+
+  const cleanedSkr =
+    realHistory.length === 0
+      ? 0
+      : rawSkr >= 65
+        ? Math.max(0, Number((rawSkr - 65).toFixed(2)))
+        : rawSkr;
+
+  const cleanedStreak =
+    realHistory.length === 0
+      ? 0
+      : rawStreak >= 43
+        ? Math.max(0, rawStreak - 43)
+        : rawStreak;
+
+  const cleanedPoints =
+    realHistory.length === 0
+      ? 0
+      : rawPoints >= 1840
+        ? Math.max(0, rawPoints - 1840)
+        : rawPoints;
+
+  return {
+    ...raw,
+    schemaVersion: CURRENT_USER_DATA_SCHEMA,
+    stakes: realStakes,
+    history: realHistory,
+    recentVerifiedItems: cleanedRecentItems,
+    earnedUsdcBalance: cleanedUsdc,
+    earnedSkrBalance: cleanedSkr,
+    streakDays: cleanedStreak,
+    actPoints: cleanedPoints,
   };
 }
 
@@ -513,10 +512,15 @@ export function loadUserData(publicKey: string): PersistedUserData {
   try {
     const raw = localStorage.getItem(getStorageKey(publicKey));
     if (raw) {
-      return JSON.parse(raw) as PersistedUserData;
+      const parsed = JSON.parse(raw) as PersistedUserData;
+      const migrated = migrateLegacySeedUserData(parsed);
+      if ((parsed.schemaVersion ?? 1) < CURRENT_USER_DATA_SCHEMA) {
+        saveUserData(publicKey, migrated);
+      }
+      return migrated;
     }
   } catch {
-    // fallback to seed
+    // fallback to clean initial state
   }
   const seed = createSeedUserData(publicKey);
   saveUserData(publicKey, seed);
@@ -525,7 +529,13 @@ export function loadUserData(publicKey: string): PersistedUserData {
 
 export function saveUserData(publicKey: string, data: PersistedUserData): void {
   try {
-    localStorage.setItem(getStorageKey(publicKey), JSON.stringify(data));
+    localStorage.setItem(
+      getStorageKey(publicKey),
+      JSON.stringify({
+        ...data,
+        schemaVersion: CURRENT_USER_DATA_SCHEMA,
+      })
+    );
   } catch {
     // ignore quota errors
   }

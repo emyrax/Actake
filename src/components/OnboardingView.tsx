@@ -17,6 +17,7 @@ import { DiscoveredWalletOption, PlatformCompatibility } from '../types/actake';
 import { BrandMark } from './BrandMark';
 import { MascotDisplay } from './MascotDisplay';
 import { ErrorStateCard, SparklineSvg } from './UiPrimitives';
+import { UnifiedWalletList } from './UnifiedWalletList';
 
 interface OnboardingViewProps {
   wallets: DiscoveredWalletOption[];
@@ -116,13 +117,6 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
     }
   };
 
-  const renderWalletIcon = (kind: DiscoveredWalletOption['kind']) => {
-    if (kind === 'pollar') return Sparkles;
-    if (kind === 'mwa') return Smartphone;
-    if (kind === 'wallet-standard') return Wallet;
-    return ShieldCheck;
-  };
-
   return (
     <div className="min-h-screen actake-canvas text-[#111114] flex flex-col">
       {/* Clean Top Bar */}
@@ -179,52 +173,13 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
 
             <p className="text-xs text-[#6B6663] leading-relaxed">{platform.summary}</p>
 
-            <div className="space-y-2">
-              {wallets.map((w) => {
-                const isSelected = w.id === selectedWalletId;
-                const WalletIcon = renderWalletIcon(w.kind);
-                return (
-                  <button
-                    key={w.id}
-                    type="button"
-                    disabled={!w.available}
-                    onClick={() => setSelectedWalletId(w.id)}
-                    className={`w-full min-h-[56px] text-left rounded-2xl p-3.5 border transition-colors flex items-center justify-between gap-3 ${
-                      !w.available
-                        ? 'bg-[#FFF8F4] border-[#F4EAE3] opacity-60 cursor-not-allowed'
-                        : isSelected
-                          ? 'bg-[#FFF3EC] border-[#F16A2E] shadow-xs'
-                          : 'bg-white border-[#EFE3DB] hover:border-[#DFC6B7]'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3 min-w-0">
-                      <span
-                        className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                          isSelected && w.available
-                            ? 'bg-[#F16A2E] text-white'
-                            : 'bg-[#FFF4EE] text-[#F16A2E]'
-                        }`}
-                      >
-                        <WalletIcon className="w-4 h-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-[#111114] truncate">{w.name}</div>
-                        <p className="text-xs text-[#6B6663] mt-0.5 leading-snug">{w.description}</p>
-                      </div>
-                    </div>
-                    <div className="shrink-0">
-                      {isSelected && w.available ? (
-                        <CheckCircle2 className="w-5 h-5 text-[#F16A2E]" />
-                      ) : (
-                        <span className="text-[11px] font-semibold text-[#877F7A]">
-                          {w.available ? 'Ready' : 'Android Chrome'}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            <UnifiedWalletList
+              wallets={wallets}
+              mode="select"
+              selectedWalletId={selectedWalletId}
+              busy={connecting}
+              onSelect={(id) => setSelectedWalletId(id)}
+            />
           </div>
 
           {error && (

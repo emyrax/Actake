@@ -247,6 +247,8 @@ export interface PlatformCompatibility {
 export interface DevnetSyncState {
   slot: number | null;
   solBalance: number | null;
+  usdcBalance: number | null;
+  skrBalance: number | null;
   blockhash: string | null;
   lastSyncedAt: number | null;
   syncing: boolean;

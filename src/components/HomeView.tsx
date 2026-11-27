@@ -7,6 +7,7 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  Copy,
   ExternalLink,
   Flame,
   Lock,
@@ -26,6 +27,7 @@ import {
   AlarmSettings,
   DevnetSyncState,
   GlobalActivitySummary,
+  HistoryEntry,
   StakeCommitment,
   TokenType,
   TreasuryConfigSummary,
@@ -52,8 +54,10 @@ import {
 interface HomeViewProps {
   nowMs: number;
   walletLabel: string;
+  walletAddress: string;
   connectionKind: WalletConnectionKind;
   stakes: StakeCommitment[];
+  history: HistoryEntry[];
   streakDays: number;
   earnedUsdcBalance: number;
   earnedSkrBalance: number;
@@ -68,9 +72,9 @@ interface HomeViewProps {
   onOpenMissions: () => void;
   onOpenAlarmSettings: () => void;
   onOpenPollarFund: () => void;
+  onOpenWalletSheet: () => void;
   onTriggerTestAlarm: (stake: StakeCommitment) => void;
   onOpenSquadLobby: (poolId: string) => void;
-  onAdjustVaultBalance: (kind: 'fund' | 'withdraw', amount: number, token: TokenType) => void;
   onClaimVerifiedStake?: (stake: StakeCommitment) => Promise<void>;
   claimingStakeId?: string | null;
   onSlashPersonalStake?: (stake: StakeCommitment) => Promise<void>;
@@ -83,8 +87,10 @@ type TimeOfDayFilter = 'all' | 'morning' | 'midday' | 'afternoon';
 export const HomeView: React.FC<HomeViewProps> = ({
   nowMs,
   walletLabel,
+  walletAddress,
   connectionKind,
   stakes,
+  history,
   streakDays,
   earnedUsdcBalance,
   earnedSkrBalance,
@@ -99,9 +105,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onOpenMissions,
   onOpenAlarmSettings,
   onOpenPollarFund,
+  onOpenWalletSheet,
   onTriggerTestAlarm,
   onOpenSquadLobby,
-  onAdjustVaultBalance,
   onClaimVerifiedStake,
   claimingStakeId,
   onSlashPersonalStake,
@@ -111,9 +117,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const pollar = useActakePollar();
   const [timeFilter, setTimeFilter] = useState<TimeOfDayFilter>('all');
   const [vaultModalMode, setVaultModalMode] = useState<'fund' | 'withdraw' | null>(null);
-  const [vaultAmount, setVaultAmount] = useState<number>(25);
-  const [vaultToken, setVaultToken] = useState<TokenType>('USDC');
-  const [vaultFormError, setVaultFormError] = useState<string | null>(null);
+  const [copiedWalletAddr, setCopiedWalletAddr] = useState(false);
   const [pendingForfeitStake, setPendingForfeitStake] = useState<StakeCommitment | null>(null);
   const [exitingSlashed, setExitingSlashed] = useState<
     Record<string, { stake: StakeCommitment; originalIndex: number }>
@@ -274,57 +278,112 @@ export const HomeView: React.FC<HomeViewProps> = ({
   );
 
   const nextStakeEntry = activeStakes[0] || null;
-  const totalLockedUsd = useMemo(
-    () => activeStakes.reduce((sum, entry) => sum + entry.stake.amount, 0),
+
+  // Pollar RAMP & Pollar balances apply strictly when connected via Pollar or authenticated Pollar provider for this wallet
+  const activePollarAddress = pollar.solanaWallet?.address || pollar.wallet?.address || null;
+  const isPollarConnected =
+    connectionKind === 'pollar' ||
+    Boolean(
+      pollar.configured &&
+        pollar.isAuthenticated &&
+        activePollarAddress &&
+        activePollarAddress === walletAddress
+    );
+
+  // Live on-chain & Pollar free balances (starts at $0.00 on fresh wallets)
+  const onChainFreeUsdc =
+    isPollarConnected && pollar.solanaBalances.usdc !== null
+      ? pollar.solanaBalances.usdc
+      : devnet.usdcBalance ?? 0;
+  const liveSolBalance =
+    isPollarConnected && pollar.solanaBalances.sol !== null
+      ? pollar.solanaBalances.sol
+      : devnet.solBalance;
+  const freeUsdcBalance = Number((onChainFreeUsdc + earnedUsdcBalance).toFixed(2));
+  const freeSkrBalance = Number(((devnet.skrBalance ?? 0) + earnedSkrBalance).toFixed(2));
+
+  // Real locked stakes separated accurately by asset (never mixing SKR 1:1 into USD)
+  const lockedUsdcUsd = useMemo(
+    () =>
+      activeStakes
+        .filter((entry) => entry.stake.token === 'USDC')
+        .reduce((sum, entry) => sum + entry.stake.amount, 0),
     [activeStakes]
   );
-  const totalProjectedSplit = useMemo(
-    () => activeStakes.reduce((sum, entry) => sum + entry.stake.slashedBonusEstimate, 0),
+  const lockedSkrAmount = useMemo(
+    () =>
+      activeStakes
+        .filter((entry) => entry.stake.token === 'SKR')
+        .reduce((sum, entry) => sum + entry.stake.amount, 0),
+    [activeStakes]
+  );
+  const totalSkrBalance = Number((freeSkrBalance + lockedSkrAmount).toFixed(2));
+
+  const totalProjectedUsdcSplit = useMemo(
+    () =>
+      activeStakes
+        .filter((entry) => entry.stake.token === 'USDC')
+        .reduce((sum, entry) => sum + entry.stake.slashedBonusEstimate, 0),
+    [activeStakes]
+  );
+  const totalProjectedSkrSplit = useMemo(
+    () =>
+      activeStakes
+        .filter((entry) => entry.stake.token === 'SKR')
+        .reduce((sum, entry) => sum + entry.stake.slashedBonusEstimate, 0),
     [activeStakes]
   );
   const skrStakeCount = useMemo(
     () => activeStakes.filter((entry) => entry.stake.token === 'SKR').length,
     [activeStakes]
   );
-  const combinedVaultUsd = earnedUsdcBalance + totalLockedUsd;
 
+  // Total Vault Balance strictly in USD/USDC (free live USDC + locked USDC stakes)
+  const combinedVaultUsd = Number((freeUsdcBalance + lockedUsdcUsd).toFixed(2));
+  const balancesLoading = devnet.syncing || (isPollarConnected && pollar.solanaBalances.loading);
+  const balanceSourceLabel =
+    isPollarConnected && pollar.solanaBalances.usdc !== null
+      ? 'Synced via Pollar'
+      : 'Live on Devnet';
+
+  // 7-day vault trend built strictly from real stake & payout history (flat baseline when empty)
   const vaultMomentumValues = useMemo(() => {
-    const base = Math.max(12, combinedVaultUsd * 0.72);
-    return [
-      base,
-      base * 1.04,
-      base * 1.09,
-      base * 1.15,
-      base * 1.22,
-      base * 1.31,
-      Math.max(base * 1.38, combinedVaultUsd),
-    ];
-  }, [combinedVaultUsd]);
+    const dayMs = 86_400_000;
+    const endOfToday = new Date(nowMs);
+    endOfToday.setHours(23, 59, 59, 999);
+    const endTs = endOfToday.getTime();
+
+    const buckets: number[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const cutoffTs = endTs - i * dayMs;
+      const earnedUpToDay = history
+        .filter((h) => h.token === 'USDC' && h.status === 'claimed' && Date.parse(h.dateIso) <= cutoffTs)
+        .reduce((sum, h) => sum + h.bonus, 0);
+      const lockedUpToDay = stakes
+        .filter(
+          (s) =>
+            s.token === 'USDC' &&
+            (s.status === 'locked' || s.status === 'ringing' || s.status === 'verified') &&
+            s.createdAt <= cutoffTs
+        )
+        .reduce((sum, s) => sum + s.amount, 0);
+      buckets.push(Number((onChainFreeUsdc + earnedUpToDay + lockedUpToDay).toFixed(2)));
+    }
+    buckets[6] = combinedVaultUsd;
+    return buckets;
+  }, [history, stakes, onChainFreeUsdc, combinedVaultUsd, Math.floor(nowMs / 3_600_000)]);
 
   const selectedSoundLabel =
     ALARM_SOUNDS.find((a) => a.id === alarmSettings.selectedSound)?.label || 'Siren';
 
-  const handleVaultSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setVaultFormError(null);
-    if (!vaultModalMode) return;
-    if (!Number.isFinite(vaultAmount) || vaultAmount <= 0) {
-      setVaultFormError('Enter an amount greater than 0.');
-      return;
+  const handleCopyWalletAddress = async () => {
+    try {
+      await navigator.clipboard.writeText(walletAddress);
+      setCopiedWalletAddr(true);
+      window.setTimeout(() => setCopiedWalletAddr(false), 1800);
+    } catch {
+      // ignore clipboard errors
     }
-    const maxAvail = vaultToken === 'USDC' ? earnedUsdcBalance : earnedSkrBalance;
-    if (vaultModalMode === 'withdraw') {
-      if (maxAvail <= 0) {
-        setVaultFormError(`You have $0.00 available ${vaultToken} to withdraw.`);
-        return;
-      }
-      if (vaultAmount > maxAvail) {
-        setVaultFormError(`Maximum available ${vaultToken} is $${maxAvail.toFixed(2)}.`);
-        return;
-      }
-    }
-    onAdjustVaultBalance(vaultModalMode, vaultAmount, vaultToken);
-    setVaultModalMode(null);
   };
 
   return (
@@ -426,40 +485,50 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
           <div className="relative z-10 flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-xs font-medium text-white/60">Total Vault Balance</div>
+              <div className="flex items-center gap-2 text-xs font-medium text-white/60">
+                <span>Total Vault Balance</span>
+                <span className="inline-flex items-center gap-1 text-[10px] font-mono text-white/55">
+                  {balancesLoading ? (
+                    <RefreshCw className="w-2.5 h-2.5 animate-spin text-[#F16A2E]" />
+                  ) : (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#4ADE80]" />
+                  )}
+                  <span>{balanceSourceLabel}</span>
+                </span>
+              </div>
               <div className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight tabular-nums mt-1">
                 ${combinedVaultUsd.toFixed(2)}
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/75 tabular-nums">
                 <span className="text-[#4ADE80] font-semibold">
-                  ${earnedUsdcBalance.toFixed(2)} USDC free
+                  ${freeUsdcBalance.toFixed(2)} USDC free
                 </span>
                 <span aria-hidden="true">·</span>
-                <span>${totalLockedUsd.toFixed(2)} locked</span>
+                <span>${lockedUsdcUsd.toFixed(2)} locked</span>
                 <span aria-hidden="true">·</span>
-                <span>{earnedSkrBalance.toFixed(0)} SKR</span>
-                {connectionKind === 'pollar' && pollar.solanaBalances.usdc !== null && (
-                  <>
-                    <span aria-hidden="true">·</span>
-                    <span className="text-[#F16A2E] font-semibold">
-                      Pollar ${pollar.solanaBalances.usdc.toFixed(2)}
-                    </span>
-                  </>
-                )}
+                <span>
+                  {totalSkrBalance === 0 ? '0' : totalSkrBalance.toFixed(2)} SKR
+                </span>
+                <span aria-hidden="true">·</span>
+                <span className="text-white/65">
+                  {liveSolBalance !== null ? `${liveSolBalance.toFixed(4)} SOL` : '— SOL'}
+                </span>
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={onOpenPollarFund}
-              className="min-h-[40px] px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/18 text-[11px] font-semibold text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#F16A2E]" />
-              <span>Pollar Ramp</span>
-            </button>
+            {isPollarConnected && (
+              <button
+                type="button"
+                onClick={onOpenPollarFund}
+                className="min-h-[40px] px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/18 text-[11px] font-semibold text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#F16A2E]" />
+                <span>Pollar RAMP</span>
+              </button>
+            )}
           </div>
 
-          {/* Compact 7-day Vault Momentum Sparkline */}
+          {/* Compact 7-day Vault Momentum Sparkline (Real History & Active Stakes) */}
           <div className="relative z-10 rounded-2xl bg-white/[0.05] border border-white/10 px-3.5 py-2.5 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[11px] text-white/60 inline-flex items-center gap-1">
@@ -467,7 +536,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span>Projected Split</span>
               </div>
               <div className="font-mono text-sm font-bold text-[#4ADE80] tabular-nums">
-                +${totalProjectedSplit.toFixed(2)} est.
+                +${totalProjectedUsdcSplit.toFixed(2)} est.
+                {totalProjectedSkrSplit > 0 && (
+                  <span className="text-white/75 text-xs ml-1.5">
+                    (+{totalProjectedSkrSplit.toFixed(2)} SKR)
+                  </span>
+                )}
               </div>
             </div>
             <div className="w-28 shrink-0">
@@ -484,12 +558,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="relative z-10 grid grid-cols-4 gap-2 pt-1">
             <button
               type="button"
-              onClick={() => {
-                setVaultFormError(null);
-                setVaultAmount(25);
-                setVaultToken('USDC');
-                setVaultModalMode('fund');
-              }}
+              onClick={() => setVaultModalMode('fund')}
               className="flex flex-col items-center gap-1.5 group min-h-[44px]"
             >
               <span className="w-12 h-12 rounded-full bg-[#F16A2E] group-hover:bg-[#E05920] text-white flex items-center justify-center transition-colors shadow-sm">
@@ -500,12 +569,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
             <button
               type="button"
-              onClick={() => {
-                setVaultFormError(null);
-                setVaultAmount(Math.min(25, Math.max(5, Math.floor(earnedUsdcBalance) || 5)));
-                setVaultToken('USDC');
-                setVaultModalMode('withdraw');
-              }}
+              onClick={() => setVaultModalMode('withdraw')}
               className="flex flex-col items-center gap-1.5 group min-h-[44px]"
             >
               <span className="w-12 h-12 rounded-full bg-white/12 group-hover:bg-white/20 text-white flex items-center justify-center transition-colors">
@@ -1024,20 +1088,26 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     recentSlashDebit ? 'text-[#B91C1C]' : 'text-[#111114]'
                   }`}
                 >
-                  ${totalLockedUsd.toFixed(2)}
+                  ${lockedUsdcUsd.toFixed(2)}
                 </div>
                 <div className="text-[11px] text-[#877F7A] mt-0.5">
-                  {activeStakes.length} active {activeStakes.length === 1 ? 'stake' : 'stakes'}
+                  {lockedSkrAmount > 0
+                    ? `${lockedSkrAmount.toFixed(2)} SKR · ${activeStakes.length} active`
+                    : `${activeStakes.length} active ${activeStakes.length === 1 ? 'stake' : 'stakes'}`}
                 </div>
               </div>
 
               <div className="rounded-2xl bg-[#ECFDF5] border border-[#BBF7D0] p-3.5">
                 <div className="text-[11px] font-semibold text-[#166534]">Est. Slashed Split</div>
                 <div className="font-display text-xl font-extrabold text-[#14532D] mt-0.5">
-                  +${totalProjectedSplit.toFixed(2)}
+                  +${totalProjectedUsdcSplit.toFixed(2)}
                 </div>
                 <div className="text-[11px] text-[#166534] mt-0.5">
-                  {skrStakeCount > 0 ? `${skrStakeCount} at 0% SKR fee` : '1.5% USDC fee'}
+                  {totalProjectedSkrSplit > 0
+                    ? `+${totalProjectedSkrSplit.toFixed(2)} SKR · 0% fee`
+                    : skrStakeCount > 0
+                      ? `${skrStakeCount} at 0% SKR fee`
+                      : '1.5% USDC fee'}
                 </div>
               </div>
             </div>
@@ -1163,7 +1233,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </div>
 
-      {/* Fund / Withdraw Vault Sheet Modal */}
+      {/* Real Fund / Withdraw Vault Sheet Modal (Pollar RAMP, Receive QR, Live Balances & Claim Settlement) */}
       {vaultModalMode && (
         <div
           onClick={() => setVaultModalMode(null)}
@@ -1175,7 +1245,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           >
             <div className="flex items-center justify-between">
               <h3 className="font-display text-xl font-extrabold text-[#111114]">
-                {vaultModalMode === 'fund' ? 'Fund Wallet with Pollar' : 'Withdraw / Send Funds'}
+                {vaultModalMode === 'fund' ? 'Fund Solana Wallet' : 'Withdraw & Claim Payouts'}
               </h3>
               <button
                 type="button"
@@ -1187,170 +1257,196 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </button>
             </div>
 
-            {/* Primary Pollar On-Ramp / Receive / Send Section */}
-            <div className="rounded-2xl bg-[#141416] text-white p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold inline-flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-[#F16A2E]" />
-                  <span>Pollar Protocol (Solana)</span>
-                </span>
-                <span className="text-[11px] text-white/65 font-mono">
-                  {pollar.configured
-                    ? pollar.isAuthenticated
-                      ? 'Connected'
-                      : 'Sign In'
-                    : 'Setup Key'}
-                </span>
+            {/* Live Connected Balances Summary */}
+            <div className="grid grid-cols-3 gap-2 text-xs tabular-nums">
+              <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-3">
+                <div className="text-[10px] font-semibold text-[#6B6663]">Free USDC</div>
+                <div className="font-mono font-bold text-sm text-[#111114] mt-0.5">
+                  ${freeUsdcBalance.toFixed(2)}
+                </div>
               </div>
+              <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-3">
+                <div className="text-[10px] font-semibold text-[#6B6663]">Free SKR</div>
+                <div className="font-mono font-bold text-sm text-[#111114] mt-0.5">
+                  {freeSkrBalance.toFixed(2)}
+                </div>
+              </div>
+              <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-3">
+                <div className="text-[10px] font-semibold text-[#6B6663]">Devnet SOL</div>
+                <div className="font-mono font-bold text-sm text-[#111114] mt-0.5">
+                  {liveSolBalance !== null ? liveSolBalance.toFixed(4) : '—'}
+                </div>
+              </div>
+            </div>
 
-              <p className="text-xs text-white/75 leading-relaxed">
-                {vaultModalMode === 'fund'
-                  ? 'Buy USDC or SOL with fiat (card / bank rails) or deposit via QR directly into your Pollar Solana wallet.'
-                  : 'Send USDC or SOL directly from your Pollar Solana wallet to any external Solana address.'}
-              </p>
+            {/* Primary Pollar RAMP / Receive / Send Section (Pollar Wallets Only) */}
+            {isPollarConnected && (
+              <div className="rounded-2xl bg-[#141416] text-white p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold inline-flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-[#F16A2E]" />
+                    <span>Pollar RAMP (Solana)</span>
+                  </span>
+                  <span className="text-[11px] text-white/65 font-mono">
+                    {pollar.configured
+                      ? pollar.isAuthenticated
+                        ? 'Connected'
+                        : 'Sign In'
+                      : 'Setup Key'}
+                  </span>
+                </div>
 
-              {vaultModalMode === 'fund' ? (
-                <div className="grid grid-cols-2 gap-2">
+                <p className="text-xs text-white/75 leading-relaxed">
+                  {vaultModalMode === 'fund'
+                    ? 'Buy USDC or SOL with card/bank rails via Pollar RAMP, or deposit crypto directly to your Solana address.'
+                    : 'Transfer available USDC or SOL out of your Pollar Solana wallet, or claim verified escrow stakes below.'}
+                </p>
+
+                {vaultModalMode === 'fund' ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVaultModalMode(null);
+                        onOpenPollarFund();
+                      }}
+                      className="min-h-[44px] px-3 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <ArrowDownLeft className="w-3.5 h-3.5" />
+                      <span>Pollar RAMP</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (pollar.configured && pollar.isAuthenticated) {
+                          setVaultModalMode(null);
+                          pollar.openReceiveModal();
+                        } else {
+                          void handleCopyWalletAddress();
+                        }
+                      }}
+                      className="min-h-[44px] px-3 py-2 rounded-full bg-white/14 hover:bg-white/22 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>
+                        {pollar.configured && pollar.isAuthenticated
+                          ? 'Receive QR'
+                          : copiedWalletAddr
+                            ? 'Address Copied'
+                            : 'Copy Address'}
+                      </span>
+                    </button>
+                  </div>
+                ) : (
                   <button
                     type="button"
                     onClick={() => {
                       setVaultModalMode(null);
                       if (pollar.configured && pollar.isAuthenticated) {
-                        pollar.openRampModal();
+                        pollar.openSendModal();
                       } else {
                         onOpenPollarFund();
                       }
                     }}
-                    className="min-h-[44px] px-3 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                    className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
                   >
-                    <ArrowDownLeft className="w-3.5 h-3.5" />
-                    <span>Pollar Fiat Ramp</span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                    <span>Open Pollar Send / Withdraw</span>
                   </button>
+                )}
+              </div>
+            )}
+
+            {/* Verified Unclaimed Stakes (Withdraw Mode) OR Direct Deposit Address (Fund Mode) */}
+            {vaultModalMode === 'withdraw' ? (
+              verifiedUnclaimedStakes.length > 0 && onClaimVerifiedStake ? (
+                <div className="rounded-2xl bg-[#ECFDF5] border border-[#BBF7D0] p-4 space-y-3">
+                  <div className="text-xs font-extrabold text-[#14532D]">
+                    {verifiedUnclaimedStakes.length} Verified Stake
+                    {verifiedUnclaimedStakes.length > 1 ? 's' : ''} Ready to Claim
+                  </div>
+                  <p className="text-xs text-[#166534] tabular-nums">
+                    {verifiedUnclaimedStakes[0].categoryName} · $
+                    {(
+                      verifiedUnclaimedStakes[0].amount +
+                      verifiedUnclaimedStakes[0].slashedBonusEstimate
+                    ).toFixed(2)}{' '}
+                    {verifiedUnclaimedStakes[0].token}
+                  </p>
                   <button
                     type="button"
+                    disabled={claimingStakeId === verifiedUnclaimedStakes[0].id}
                     onClick={() => {
                       setVaultModalMode(null);
-                      if (pollar.configured && pollar.isAuthenticated) {
-                        pollar.openReceiveModal();
-                      } else {
-                        onOpenPollarFund();
-                      }
+                      void onClaimVerifiedStake(verifiedUnclaimedStakes[0]);
                     }}
-                    className="min-h-[44px] px-3 py-2 rounded-full bg-white/14 hover:bg-white/22 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                    className="w-full min-h-[44px] rounded-full bg-[#14532D] hover:bg-[#16A34A] disabled:opacity-60 text-white text-xs font-bold transition-colors"
                   >
-                    <QrCode className="w-3.5 h-3.5" />
-                    <span>Receive QR</span>
+                    {claimingStakeId === verifiedUnclaimedStakes[0].id
+                      ? 'Settling on Devnet...'
+                      : 'Claim Escrow Payout Now'}
                   </button>
                 </div>
               ) : (
+                <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-4 space-y-1.5 text-xs text-[#6B6663]">
+                  <div className="font-bold text-[#111114]">
+                    {lockedUsdcUsd > 0 || lockedSkrAmount > 0
+                      ? `Locked in Active Stakes: $${lockedUsdcUsd.toFixed(2)} USDC${lockedSkrAmount > 0 ? ` · ${lockedSkrAmount.toFixed(2)} SKR` : ''}`
+                      : 'No verified escrow payouts waiting to claim'}
+                  </div>
+                  <p className="leading-relaxed">
+                    Staked principal and slashed pool splits unlock automatically after you pass live
+                    AI camera verification before your deadline.
+                  </p>
+                </div>
+              )
+            ) : (
+              <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-4 space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-[#111114]">Direct Solana Deposit Address</span>
+                  <span className="text-[11px] font-mono text-[#16A34A] font-semibold">
+                    solana:devnet
+                  </span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setVaultModalMode(null);
-                    if (pollar.configured && pollar.isAuthenticated) {
-                      pollar.openSendModal();
-                    } else {
-                      onOpenPollarFund();
-                    }
-                  }}
-                  className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                  onClick={() => void handleCopyWalletAddress()}
+                  className="w-full min-h-[44px] rounded-xl bg-white border border-[#EFE2D9] hover:border-[#F16A2E] px-3 py-2 flex items-center justify-between gap-2 text-left transition-colors"
                 >
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                  <span>Open Pollar Send / Withdraw</span>
+                  <span className="font-mono text-xs text-[#111114] truncate">{walletAddress}</span>
+                  {copiedWalletAddr ? (
+                    <Check className="w-4 h-4 text-[#16A34A] shrink-0" />
+                  ) : (
+                    <Copy className="w-4 h-4 text-[#6B6663] shrink-0" />
+                  )}
                 </button>
-              )}
-            </div>
-
-            <div className="relative flex items-center justify-center">
-              <div className="border-t border-[#F2E3DA] w-full" />
-              <span className="bg-white px-3 text-[11px] font-semibold text-[#877F7A] whitespace-nowrap">
-                or Devnet Staking Vault
-              </span>
-              <div className="border-t border-[#F2E3DA] w-full" />
-            </div>
-
-            <form onSubmit={handleVaultSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-2">
-                {(['USDC', 'SKR'] as TokenType[]).map((tok) => (
+                <div className="flex items-center justify-between gap-2 pt-1">
                   <button
-                    key={tok}
                     type="button"
                     onClick={() => {
-                      setVaultToken(tok);
-                      setVaultFormError(null);
+                      onRefreshDevnet();
+                      if (pollar.isAuthenticated) {
+                        void pollar.refreshWalletBalance(true);
+                      }
                     }}
-                    className={`min-h-[44px] rounded-full text-xs font-bold transition-colors ${
-                      vaultToken === tok
-                        ? 'bg-[#111114] text-white'
-                        : 'bg-[#FFF4EE] text-[#111114] hover:bg-[#FFE5D6]'
-                    }`}
+                    className="text-xs font-bold text-[#F16A2E] hover:underline inline-flex items-center gap-1"
                   >
-                    {tok === 'SKR' ? 'SKR (0% Fee)' : 'USDC (SPL)'}
+                    <RefreshCw className={`w-3.5 h-3.5 ${balancesLoading ? 'animate-spin' : ''}`} />
+                    <span>Refresh Live Balances</span>
                   </button>
-                ))}
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <label htmlFor="vault-amount-input" className="font-semibold text-[#6B6663]">
-                    Amount ({vaultToken})
-                  </label>
-                  {vaultModalMode === 'withdraw' && (
-                    <span className="font-mono text-[11px] text-[#877F7A] tabular-nums">
-                      Available: $
-                      {(vaultToken === 'USDC' ? earnedUsdcBalance : earnedSkrBalance).toFixed(2)}
-                    </span>
-                  )}
-                </div>
-                <input
-                  id="vault-amount-input"
-                  type="number"
-                  min={1}
-                  step="any"
-                  required
-                  value={vaultAmount}
-                  onChange={(e) => {
-                    setVaultFormError(null);
-                    setVaultAmount(Number(e.target.value));
-                  }}
-                  className="w-full min-h-[48px] rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-4 py-3 font-mono text-lg font-bold text-[#111114] focus:outline-none focus:border-[#F16A2E]"
-                />
-                <div className="flex gap-2 mt-2">
-                  {[10, 25, 50, 100].map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => {
-                        setVaultFormError(null);
-                        setVaultAmount(preset);
-                      }}
-                      className="flex-1 min-h-[38px] py-1.5 rounded-full bg-[#FFF4EE] hover:bg-[#FFE5D6] text-xs font-mono font-semibold text-[#111114] transition-colors"
-                    >
-                      ${preset}
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVaultModalMode(null);
+                      onOpenWalletSheet();
+                    }}
+                    className="text-xs font-semibold text-[#6B6663] hover:text-[#111114]"
+                  >
+                    Switch Wallet
+                  </button>
                 </div>
               </div>
-
-              {vaultFormError && (
-                <div
-                  role="alert"
-                  className="rounded-xl bg-[#FEF2F2] border border-[#FECACA] px-3.5 py-2.5 text-xs text-[#991B1B] flex items-center gap-2"
-                >
-                  <AlertCircle className="w-4 h-4 text-[#DC2626] shrink-0" />
-                  <span>{vaultFormError}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="w-full min-h-[48px] rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold transition-colors"
-              >
-                {vaultModalMode === 'fund'
-                  ? `Add $${Number.isFinite(vaultAmount) ? vaultAmount.toFixed(2) : '0.00'} ${vaultToken} to Devnet Vault`
-                  : `Withdraw $${Number.isFinite(vaultAmount) ? vaultAmount.toFixed(2) : '0.00'} ${vaultToken}`}
-              </button>
-            </form>
+            )}
           </div>
         </div>
       )}

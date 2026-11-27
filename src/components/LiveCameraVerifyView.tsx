@@ -12,6 +12,11 @@ import {
 import { RandomizedTargetPrompt, StakeCommitment, VerificationResult } from '../types/actake';
 import { BrandMark } from './BrandMark';
 import { MascotLoader } from './MascotDisplay';
+import {
+  safeFetchJson,
+  sanitizeApiErrorMessage,
+  sanitizeDisplayText,
+} from '../utils/safeFetchJson';
 
 interface LiveCameraVerifyViewProps {
   stake: StakeCommitment;
@@ -39,6 +44,7 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const startedAtRef = useRef<number>(Date.now());
+  const mountedRef = useRef<boolean>(true);
 
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -50,10 +56,51 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
   const [secondsLeft, setSecondsLeft] = useState(300); // 5 min verification window
   const [showStrictExitGuard, setShowStrictExitGuard] = useState(false);
 
+  const hasLiveVideoTrack = (stream: MediaStream | null): boolean => {
+    if (!stream) return false;
+    return stream.getVideoTracks().some((track) => track.readyState === 'live');
+  };
+
   const stopCamera = () => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
+    }
+  };
+
+  const attachStreamToVideo = async (stream: MediaStream) => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+
+    // Wait briefly for metadata if dimensions aren't populated yet
+    if (video.readyState < 1) {
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          video.removeEventListener('loadedmetadata', done);
+          video.removeEventListener('canplay', done);
+          resolve();
+        };
+        video.addEventListener('loadedmetadata', done, { once: true });
+        video.addEventListener('canplay', done, { once: true });
+        window.setTimeout(done, 1200);
+      });
+    }
+
+    try {
+      await video.play();
+    } catch {
+      // Mobile browsers can reject play() if already playing; ignore if tracks are live
+    }
+
+    if (mountedRef.current && hasLiveVideoTrack(stream)) {
+      setCameraReady(true);
     }
   };
 
@@ -65,21 +112,34 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Live camera API is unavailable in this browser context.');
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 960 },
-        },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 960 },
+          },
+          audio: false,
+        });
+      } catch {
+        // Fallback for devices that reject strict resolution/facing constraints
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
       }
-      setCameraReady(true);
+
+      if (!mountedRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
+      streamRef.current = stream;
+      await attachStreamToVideo(stream);
     } catch (err) {
+      if (!mountedRef.current) return;
       const msg =
         err instanceof Error
           ? err.message
@@ -88,12 +148,31 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
     }
   };
 
+  const ensureLiveCameraFeed = async () => {
+    if (hasLiveVideoTrack(streamRef.current) && videoRef.current) {
+      await attachStreamToVideo(streamRef.current!);
+      return;
+    }
+    await startCamera();
+  };
+
   useEffect(() => {
-    startCamera();
+    mountedRef.current = true;
+    void startCamera();
     return () => {
+      mountedRef.current = false;
       stopCamera();
     };
   }, []);
+
+  // Whenever returning from captured review to live preview, ensure stream is attached & playing
+  useEffect(() => {
+    if (!capturedDataUrl && !cameraError) {
+      if (hasLiveVideoTrack(streamRef.current)) {
+        void attachStreamToVideo(streamRef.current!);
+      }
+    }
+  }, [capturedDataUrl, cameraError]);
 
   // Countdown timer for active proof window
   useEffect(() => {
@@ -109,20 +188,36 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
 
   const handleCaptureFrame = () => {
     const video = videoRef.current;
-    if (!video || !cameraReady) return;
+    if (!video || !cameraReady || !hasLiveVideoTrack(streamRef.current)) {
+      void ensureLiveCameraFeed();
+      return;
+    }
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh || video.readyState < 2) {
+      setVerifyError('Camera frame is still warming up. Hold steady for a second and tap Capture again.');
+      void ensureLiveCameraFeed();
+      return;
+    }
 
     const canvas = document.createElement('canvas');
-    const vw = video.videoWidth || 640;
-    const vh = video.videoHeight || 480;
-    const maxDim = 960;
+    // Keep image crisp for AI Vision while compact enough (~80-180 KB) to avoid proxy body limits
+    const maxDim = 800;
     const scale = Math.min(1, maxDim / Math.max(vw, vh));
-    canvas.width = Math.round(vw * scale);
-    canvas.height = Math.round(vh * scale);
+    canvas.width = Math.max(1, Math.round(vw * scale));
+    canvas.height = Math.max(1, Math.round(vh * scale));
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const jpegUrl = canvas.toDataURL('image/jpeg', 0.85);
+    const jpegUrl = canvas.toDataURL('image/jpeg', 0.78);
+
+    if (!jpegUrl || !jpegUrl.startsWith('data:image/')) {
+      setVerifyError('Could not capture photo frame. Please retake.');
+      return;
+    }
+
     setCapturedDataUrl(jpegUrl);
     setVerifyFeedback(null);
     setVerifyError(null);
@@ -132,6 +227,7 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
     setCapturedDataUrl(null);
     setVerifyFeedback(null);
     setVerifyError(null);
+    void ensureLiveCameraFeed();
   };
 
   const handleConfirmAndVerify = async () => {
@@ -142,7 +238,7 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
 
     try {
       const t0 = performance.now();
-      const resp = await fetch('/api/verify/mission', {
+      const rawPayload = await safeFetchJson<Partial<VerificationResult>>('/api/verify/mission', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -158,27 +254,69 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
           poolId: poolId || 'squad-7am-club',
           memberName: `${walletPublicKey.slice(0, 4)}...${walletPublicKey.slice(-4)}`,
         }),
+        retries: 1,
+        retryDelayMs: 700,
+        fallbackError: 'Vision verification failed. Please retry or retake the photo.',
       });
 
-      const payload = await resp.json();
-      if (!resp.ok) {
-        throw new Error(payload.error || 'Gemini Vision verification failed.');
-      }
+      const rawConfidence =
+        typeof rawPayload.confidence === 'number'
+          ? rawPayload.confidence
+          : Number(rawPayload.confidence);
+      const confidence = Number.isFinite(rawConfidence)
+        ? Math.max(0, Math.min(1, rawConfidence))
+        : 0;
+      const liveConfirmed = Boolean(rawPayload.liveConfirmed);
+      const verified = Boolean(rawPayload.verified) && liveConfirmed && confidence >= 0.8;
 
-      const result = payload as VerificationResult;
+      const result: VerificationResult = {
+        verified,
+        liveConfirmed,
+        confidence,
+        detectedObject: sanitizeDisplayText(rawPayload.detectedObject, 'Unrecognized subject'),
+        reasoning: sanitizeDisplayText(
+          rawPayload.reasoning,
+          verified
+            ? 'Live physical proof verified.'
+            : 'Could not clearly confirm the required target in this frame.'
+        ),
+        photoSha256: sanitizeDisplayText(rawPayload.photoSha256, ''),
+        oracleSignature: sanitizeDisplayText(rawPayload.oracleSignature, ''),
+        oraclePublicKey: sanitizeDisplayText(rawPayload.oraclePublicKey, ''),
+        messageBytesHex: sanitizeDisplayText(rawPayload.messageBytesHex, '') || undefined,
+        verifiedAt: Number(rawPayload.verifiedAt) || Date.now(),
+        model: sanitizeDisplayText(rawPayload.model, 'gemini-4-hydrogen'),
+      };
+
       setVerifyFeedback(result);
 
       if (result.verified) {
         setSigningEscrow(true);
         const durationMs = Math.max(120, Math.round(performance.now() - t0));
         stopCamera();
-        await onVerified(result, durationMs);
+        try {
+          await onVerified(result, durationMs);
+        } catch (escrowErr) {
+          throw new Error(
+            sanitizeApiErrorMessage(
+              escrowErr,
+              'Photo verified, but submitting the on-chain check-in failed. Please retry.'
+            )
+          );
+        }
       }
     } catch (err) {
-      setVerifyError(err instanceof Error ? err.message : 'Unable to reach Vision Oracle.');
+      setVerifyError(
+        sanitizeApiErrorMessage(
+          err,
+          'Image cross-check returned an unexpected response. Please tap Retry Verification or Retake.'
+        )
+      );
     } finally {
-      setVerifying(false);
-      setSigningEscrow(false);
+      if (mountedRef.current) {
+        setVerifying(false);
+        setSigningEscrow(false);
+      }
     }
   };
 
@@ -246,15 +384,9 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
             </div>
           </div>
 
-          {/* Camera Feed / Captured Review Frame */}
+          {/* Camera Feed / Captured Review Frame — keep <video> mounted continuously so Retake never goes blank */}
           <div className="relative rounded-3xl overflow-hidden bg-[#181E25] aspect-[4/3] w-full flex items-center justify-center border border-[#2C3540]">
-            {capturedDataUrl ? (
-              <img
-                src={capturedDataUrl}
-                alt="Captured live verification frame"
-                className="w-full h-full object-cover"
-              />
-            ) : cameraError ? (
+            {cameraError ? (
               <div className="p-6 text-center text-white space-y-3 max-w-sm">
                 <AlertCircle className="w-8 h-8 text-[#EC6B3F] mx-auto" />
                 <div className="font-display font-bold text-base">Camera Access Required</div>
@@ -264,7 +396,7 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
                 </p>
                 <button
                   type="button"
-                  onClick={startCamera}
+                  onClick={() => void startCamera()}
                   className="min-h-[42px] px-4 py-2 rounded-xl bg-[#EC6B3F] text-white text-xs font-semibold hover:bg-[#D95B31] inline-flex items-center gap-2"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
@@ -278,9 +410,10 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
                   autoPlay
                   playsInline
                   muted
-                  className="w-full h-full object-cover"
+                  onPlaying={() => setCameraReady(true)}
+                  className={`w-full h-full object-cover ${capturedDataUrl ? 'invisible' : 'visible'}`}
                 />
-                {!cameraReady && (
+                {!cameraReady && !capturedDataUrl && (
                   <div className="absolute inset-0 flex items-center justify-center bg-[#181E25]/88 p-6">
                     <MascotLoader
                       size="lg"
@@ -293,8 +426,16 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
               </>
             )}
 
+            {capturedDataUrl && (
+              <img
+                src={capturedDataUrl}
+                alt="Captured live verification frame"
+                className="absolute inset-0 z-10 w-full h-full object-cover"
+              />
+            )}
+
             {/* Targeting Reticle Overlay (when live preview active) */}
-            {!capturedDataUrl && cameraReady && (
+            {!capturedDataUrl && cameraReady && !cameraError && (
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                 <div className="w-44 h-44 sm:w-52 sm:h-52 relative">
                   <span className="absolute top-0 left-0 w-7 h-7 border-t-4 border-l-4 border-white/90 rounded-tl-xl" />
@@ -311,7 +452,7 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
 
             {/* Verifying Overlay */}
             {(verifying || signingEscrow) && (
-              <div className="absolute inset-0 bg-[#111114]/86 flex items-center justify-center p-6">
+              <div className="absolute inset-0 z-20 bg-[#111114]/86 flex items-center justify-center p-6">
                 <MascotLoader
                   size="xl"
                   theme="dark"
@@ -384,8 +525,29 @@ export const LiveCameraVerifyView: React.FC<LiveCameraVerifyViewProps> = ({
           )}
 
           {verifyError && (
-            <div className="rounded-2xl bg-[#FEF2F2] border border-[#FECACA] p-4 text-xs text-[#991B1B]">
-              {verifyError}
+            <div className="rounded-2xl bg-[#FEF2F2] border border-[#FECACA] p-4 space-y-2 text-xs text-[#991B1B]">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
+                <span className="leading-relaxed">{verifyError}</span>
+              </div>
+              {capturedDataUrl && !verifying && !signingEscrow && (
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmAndVerify()}
+                    className="min-h-[34px] px-3 rounded-lg bg-[#991B1B] text-white text-[11px] font-semibold hover:bg-[#7F1D1D] transition-colors"
+                  >
+                    Retry Verification
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRetake}
+                    className="min-h-[34px] px-3 rounded-lg bg-white border border-[#FECACA] text-[#991B1B] text-[11px] font-semibold hover:bg-[#FFF5F5] transition-colors"
+                  >
+                    Retake Photo
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

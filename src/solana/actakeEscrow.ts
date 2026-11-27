@@ -8,6 +8,7 @@ import {
 } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { TokenType } from '../types/actake';
+import { safeFetchJson } from '../utils/safeFetchJson';
 
 export const DEFAULT_ACTAKE_ESCROW_PROGRAM_ID = 'ACTKescrow111111111111111111111111111111111';
 export const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
@@ -246,27 +247,68 @@ export function buildSquadLobbyUrl(poolId: string): string {
 }
 
 async function solanaRpc<T>(method: string, params: unknown[] = []): Promise<T> {
-  const res = await fetch('/api/solana/rpc', {
+  const payload = await safeFetchJson<{
+    result?: T;
+    error?: { message?: string };
+  }>('/api/solana/rpc', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ method, params }),
+    retries: 1,
+    fallbackError: 'Devnet RPC returned an unexpected response.',
   });
-  if (!res.ok) {
-    throw new Error(`Devnet RPC error (${res.status})`);
-  }
-  const payload = await res.json();
   if (payload.error) {
     throw new Error(payload.error.message || 'Solana RPC returned an error');
   }
   return payload.result as T;
 }
 
+interface ParsedTokenAccountEntry {
+  account?: {
+    data?: {
+      parsed?: {
+        info?: {
+          tokenAmount?: {
+            uiAmount?: number | null;
+            uiAmountString?: string;
+          };
+        };
+      };
+    };
+  };
+}
+
+async function fetchSplTokenBalance(publicKey: string, mint: string): Promise<number> {
+  try {
+    const resp = await solanaRpc<{ value?: ParsedTokenAccountEntry[] }>(
+      'getTokenAccountsByOwner',
+      [publicKey, { mint }, { encoding: 'jsonParsed', commitment: 'confirmed' }]
+    );
+    const accounts = Array.isArray(resp?.value) ? resp.value : [];
+    let total = 0;
+    for (const acc of accounts) {
+      const tokenAmt = acc.account?.data?.parsed?.info?.tokenAmount;
+      if (typeof tokenAmt?.uiAmount === 'number' && Number.isFinite(tokenAmt.uiAmount)) {
+        total += tokenAmt.uiAmount;
+      } else if (typeof tokenAmt?.uiAmountString === 'string') {
+        const parsed = Number.parseFloat(tokenAmt.uiAmountString);
+        if (Number.isFinite(parsed)) total += parsed;
+      }
+    }
+    return Number(total.toFixed(6));
+  } catch {
+    return 0;
+  }
+}
+
 export async function fetchDevnetTelemetry(publicKey?: string): Promise<{
   slot: number;
   solBalance: number | null;
+  usdcBalance: number | null;
+  skrBalance: number | null;
   blockhash: string;
 }> {
-  const [slot, blockhashResp, balanceResp] = await Promise.all([
+  const [slot, blockhashResp, balanceResp, usdcBalance, skrBalance] = await Promise.all([
     solanaRpc<number>('getSlot', [{ commitment: 'confirmed' }]),
     solanaRpc<{ value: { blockhash: string } }>('getLatestBlockhash', [
       { commitment: 'confirmed' },
@@ -276,11 +318,19 @@ export async function fetchDevnetTelemetry(publicKey?: string): Promise<{
           () => ({ value: 0 })
         )
       : Promise.resolve(null),
+    publicKey
+      ? fetchSplTokenBalance(publicKey, TOKEN_CONFIGS.USDC.mint)
+      : Promise.resolve(null),
+    publicKey
+      ? fetchSplTokenBalance(publicKey, TOKEN_CONFIGS.SKR.mint)
+      : Promise.resolve(null),
   ]);
 
   return {
     slot,
     solBalance: balanceResp ? balanceResp.value / 1_000_000_000 : null,
+    usdcBalance,
+    skrBalance,
     blockhash: blockhashResp.value.blockhash,
   };
 }
@@ -309,13 +359,20 @@ export async function broadcastSignedTransactionToDevnet(
   signedTxBytes: Uint8Array
 ): Promise<DevnetBroadcastResult> {
   const base64 = Buffer.from(signedTxBytes).toString('base64');
-  const res = await fetch('/api/solana/send-tx', {
+  const payload = await safeFetchJson<{
+    signature?: string;
+    confirmed?: boolean;
+    confirmationStatus?: string;
+    explorerUrl?: string;
+    error?: string;
+  }>('/api/solana/send-tx', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ signedTransactionBase64: base64 }),
+    retries: 1,
+    fallbackError: 'Solana Devnet broadcast failed.',
   });
-  const payload = await res.json();
-  if (!res.ok || !payload.signature) {
+  if (!payload.signature) {
     throw new Error(payload.error || 'Solana Devnet broadcast failed.');
   }
   return {
@@ -330,13 +387,19 @@ export async function requestDevnetSolAirdrop(
   publicKey: string,
   solAmount = 1
 ): Promise<{ signature: string; solAmount: number; explorerUrl: string }> {
-  const res = await fetch('/api/solana/airdrop', {
+  const payload = await safeFetchJson<{
+    signature?: string;
+    solAmount?: number;
+    explorerUrl?: string;
+    error?: string;
+  }>('/api/solana/airdrop', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ publicKey, solAmount }),
+    retries: 0,
+    fallbackError: 'Devnet SOL airdrop failed.',
   });
-  const payload = await res.json();
-  if (!res.ok || !payload.signature) {
+  if (!payload.signature) {
     throw new Error(payload.error || 'Devnet SOL airdrop failed.');
   }
   return {

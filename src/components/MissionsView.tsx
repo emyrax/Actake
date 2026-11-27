@@ -14,6 +14,7 @@ import {
   Flame,
   Footprints,
   Leaf,
+  Loader2,
   Plus,
   ShieldCheck,
   Sparkles,
@@ -937,9 +938,13 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
             type="button"
             disabled={submitting || Boolean(amountError)}
             onClick={() => void handleLockStake()}
-            className="w-full min-h-[52px] px-5 py-3 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-60 shadow-sm"
+            className="w-full min-h-[52px] px-5 py-3 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-75 shadow-sm"
           >
-            <Wallet className="w-4 h-4" />
+            {submitting ? (
+              <Loader2 className="w-4 h-4 animate-spin text-[#F16A2E]" />
+            ) : (
+              <Wallet className="w-4 h-4" />
+            )}
             <span>
               {submitting
                 ? isPollarPaying
@@ -950,6 +955,21 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                   : `Save & Lock $${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} ${token}`}
             </span>
           </button>
+
+          {submitting && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-3.5 py-2.5 flex items-center gap-2.5 text-xs text-[#6B6663]"
+            >
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#F16A2E] shrink-0" />
+              <span>
+                {isPollarPaying
+                  ? 'Confirm the payment prompt in Pollar — the page stays interactive while it processes.'
+                  : 'Approve the transaction in your wallet — confirming in the background.'}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

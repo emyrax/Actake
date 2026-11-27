@@ -90,6 +90,52 @@ function getGeminiClient(): GoogleGenAI {
   });
 }
 
+function safeParseModelJson<T = Record<string, unknown>>(rawText: string | undefined): T {
+  const original = String(rawText ?? '').trim();
+  if (!original) {
+    throw new Error('AI Vision returned an empty response. Please retake your photo and try again.');
+  }
+
+  // Strip optional markdown code fences (```json ... ``` or ``` ... ```)
+  const unfenced = original
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  try {
+    return JSON.parse(unfenced) as T;
+  } catch {
+    // Fallback: extract the first complete JSON object block if extra text surrounded it
+    const firstBrace = unfenced.indexOf('{');
+    const lastBrace = unfenced.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const slice = unfenced.slice(firstBrace, lastBrace + 1);
+      try {
+        return JSON.parse(slice) as T;
+      } catch {
+        // fall through to clean error
+      }
+    }
+    throw new Error(
+      'AI Vision returned a malformed response while inspecting the photo. Please retry or retake.'
+    );
+  }
+}
+
+function formatGeminiApiError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err || 'Vision verification failed.');
+  if (/GEMINI_API_KEY is not configured|API_KEY_INVALID|PERMISSION_DENIED|403/i.test(raw)) {
+    return 'AI Vision API key is missing or invalid. Please check your key in Settings > Secrets.';
+  }
+  if (/RESOURCE_EXHAUSTED|429|quota/i.test(raw)) {
+    return 'AI Vision quota or rate limit reached. Please wait a few seconds and try again.';
+  }
+  if (/Unexpected token|JSON/i.test(raw)) {
+    return 'AI Vision returned an unexpected format while cross-checking the photo. Please retry.';
+  }
+  return raw;
+}
+
 function to32BytePubkeyBuffer(value: string): Buffer {
   try {
     return Buffer.from(new PublicKey(value).toBytes());
@@ -823,31 +869,46 @@ async function runVisionOracleVerification(params: {
     }
   }
 
-  const cleanedBase64 = String(params.imageBase64).replace(
-    /^data:image\/[a-zA-Z0-9+.-]+;base64,/,
-    ''
-  );
+  const rawInput = String(params.imageBase64 || '').trim();
+  const dataUrlMatch = rawInput.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/i);
+  const resolvedMimeType =
+    dataUrlMatch?.[1]?.toLowerCase() ||
+    (params.mimeType && /^image\//i.test(params.mimeType) ? params.mimeType : 'image/jpeg');
+  const cleanedBase64 = rawInput.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/i, '').trim();
+
   const photoBuffer = Buffer.from(cleanedBase64, 'base64');
-  if (photoBuffer.length === 0 || photoBuffer.length > 10 * 1024 * 1024) {
-    throw new Error('Invalid image payload size.');
+  if (photoBuffer.length < 100 || photoBuffer.length > 10 * 1024 * 1024) {
+    throw new Error('Invalid image payload size. Please retake your photo.');
   }
 
   const proofHashBuf = crypto.createHash('sha256').update(photoBuffer).digest();
   const proofHashHex = proofHashBuf.toString('hex');
 
   const ai = getGeminiClient();
-  const response = await ai.models.generateContent({
-    model: 'gemini-4-hydrogen',
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            mimeType: params.mimeType || 'image/jpeg',
-            data: cleanedBase64,
-          },
-        },
-        {
-          text: `You are the Actake Anti-Cheat Vision Oracle verifying a live habit proof photo.
+
+  let parsed: {
+    verified?: unknown;
+    liveConfirmed?: unknown;
+    confidence?: unknown;
+    detectedObject?: unknown;
+    reasoning?: unknown;
+  } | null = null;
+  let lastVisionErr: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: resolvedMimeType,
+                data: cleanedBase64,
+              },
+            },
+            {
+              text: `You are the Actake Anti-Cheat Vision Oracle verifying a live habit proof photo.
 Mission Type: "${params.missionType}"
 Target item/action required: "${params.targetPrompt}"
 Capture instructions given to user: "${params.visualCue || 'Show the physical item or action clearly.'}"
@@ -856,29 +917,52 @@ Anti-cheat rule: "${params.antiCheatRule || 'Reject photos of phone/laptop scree
 Evaluate the live camera photo strictly:
 1. Confirm this is a genuine live photograph taken in the physical 3D world (NOT a photo of a phone/laptop screen, monitor pixels, or printed picture).
 2. Confirm the target object/action ("${params.targetPrompt}") is clearly visible.
-3. Provide a confidence score between 0.0 and 1.0. Only set verified=true if the target matches AND liveConfirmed=true AND confidence >= 0.80.`,
+3. Provide a confidence score between 0.0 and 1.0. Only set verified=true if the target matches AND liveConfirmed=true AND confidence >= 0.80.
+Return ONLY valid JSON matching the schema.`,
+            },
+          ],
         },
-      ],
-    },
-    config: {
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          verified: { type: Type.BOOLEAN },
-          liveConfirmed: { type: Type.BOOLEAN },
-          confidence: { type: Type.NUMBER },
-          detectedObject: { type: Type.STRING },
-          reasoning: { type: Type.STRING },
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              verified: { type: Type.BOOLEAN },
+              liveConfirmed: { type: Type.BOOLEAN },
+              confidence: { type: Type.NUMBER },
+              detectedObject: { type: Type.STRING },
+              reasoning: { type: Type.STRING },
+            },
+            required: ['verified', 'liveConfirmed', 'confidence', 'detectedObject', 'reasoning'],
+          },
         },
-        required: ['verified', 'liveConfirmed', 'confidence', 'detectedObject', 'reasoning'],
-      },
-    },
-  });
+      });
 
-  const parsed = JSON.parse((response.text ?? '{}').trim());
-  const confidence = Math.max(0, Math.min(1, Number(parsed.confidence ?? 0)));
+      parsed = safeParseModelJson(response.text);
+      if (parsed && typeof parsed === 'object') {
+        break;
+      }
+      throw new Error('Vision model returned an empty or unreadable JSON response.');
+    } catch (err) {
+      lastVisionErr = err;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isPermanentKeyError = /API_KEY_INVALID|PERMISSION_DENIED|GEMINI_API_KEY is not configured|403/i.test(
+        errMsg
+      );
+      if (isPermanentKeyError || attempt === 1) {
+        throw new Error(formatGeminiApiError(err));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+    }
+  }
+
+  if (!parsed) {
+    throw new Error(formatGeminiApiError(lastVisionErr));
+  }
+
+  const rawConfidence = Number(parsed.confidence ?? 0);
+  const confidence = Number.isFinite(rawConfidence) ? Math.max(0, Math.min(1, rawConfidence)) : 0;
   const liveConfirmed = Boolean(parsed.liveConfirmed);
   const verified = Boolean(parsed.verified) && liveConfirmed && confidence >= 0.8;
 
@@ -1382,7 +1466,6 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
           model: 'gemini-4-hydrogen',
           contents: prompt,
           config: {
-            temperature: shouldFreestyle ? 1.1 : 0.85,
             thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
             responseMimeType: 'application/json',
             responseSchema: {
@@ -1403,7 +1486,13 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
           },
         });
 
-        const parsed = JSON.parse((response.text ?? '{}').trim());
+        const parsed = safeParseModelJson<{
+          itemName?: string;
+          visualCue?: string;
+          antiCheatRule?: string;
+          iconKey?: string;
+          accentHex?: string;
+        }>(response.text);
         const candidateName = String(parsed.itemName || '').trim();
         const isRepeatedByModel =
           candidateName.length === 0 ||
@@ -1418,16 +1507,18 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
             (p) => p.itemName.toLowerCase() === itemName.toLowerCase()
           );
           iconKey = matchedPreset?.iconKey || String(parsed.iconKey || 'generic');
-          accentHex = /^#[0-9A-Fa-f]{6}$/.test(parsed.accentHex)
-            ? parsed.accentHex
+          const rawAccentHex = typeof parsed.accentHex === 'string' ? parsed.accentHex.trim() : '';
+          accentHex = /^#[0-9A-Fa-f]{6}$/.test(rawAccentHex)
+            ? rawAccentHex
             : selectedTemplate.accentHex;
         } else {
           itemName = selectedTemplate.itemName;
           visualCue = String(parsed.visualCue || selectedTemplate.visualCue).trim();
           antiCheatRule = String(parsed.antiCheatRule || selectedTemplate.antiCheatRule).trim();
           iconKey = selectedTemplate.iconKey;
-          accentHex = /^#[0-9A-Fa-f]{6}$/.test(parsed.accentHex)
-            ? parsed.accentHex
+          const rawAccentHex = typeof parsed.accentHex === 'string' ? parsed.accentHex.trim() : '';
+          accentHex = /^#[0-9A-Fa-f]{6}$/.test(rawAccentHex)
+            ? rawAccentHex
             : selectedTemplate.accentHex;
         }
       } catch {
@@ -1911,6 +2002,25 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
   // ============================================================================
   // SOLANA DEVNET JSON-RPC PROXY, TX BROADCASTER & DEVNET FAUCET
   // ============================================================================
+  async function safeReadUpstreamJson<T>(
+    resp: globalThis.Response,
+    fallbackError: string
+  ): Promise<T> {
+    const rawText = await resp.text();
+    const trimmed = rawText.trim();
+    if (!trimmed) {
+      throw new Error(fallbackError);
+    }
+    if (trimmed.startsWith('<')) {
+      throw new Error(`${fallbackError} (upstream returned HTTP ${resp.status})`);
+    }
+    try {
+      return JSON.parse(trimmed) as T;
+    } catch {
+      throw new Error(`${fallbackError} (invalid JSON response)`);
+    }
+  }
+
   app.post('/api/solana/rpc', async (req, res) => {
     try {
       const { method, params = [] } = req.body ?? {};
@@ -1922,6 +2032,7 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
         'getEpochInfo',
         'getSignatureStatuses',
         'getAccountInfo',
+        'getTokenAccountsByOwner',
       ]);
 
       if (!allowedMethods.has(String(method))) {
@@ -1941,7 +2052,7 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
         }),
       });
 
-      const data = await upstream.json();
+      const data = await safeReadUpstreamJson<unknown>(upstream, 'Solana Devnet RPC unreachable');
       res.json(data);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Solana Devnet RPC unreachable';
@@ -1988,10 +2099,10 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
         }),
       });
 
-      const sendJson = (await sendResp.json()) as {
+      const sendJson = await safeReadUpstreamJson<{
         result?: string;
         error?: { message?: string; code?: number };
-      };
+      }>(sendResp, 'Solana Devnet RPC rejected the transaction request');
 
       if (sendJson.error || !sendJson.result) {
         res.status(400).json({
@@ -2019,11 +2130,11 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
               params: [[signature], { searchTransactionHistory: true }],
             }),
           });
-          const statusJson = (await statusResp.json()) as {
+          const statusJson = await safeReadUpstreamJson<{
             result?: {
               value?: Array<{ confirmationStatus?: string; err?: unknown } | null>;
             };
-          };
+          }>(statusResp, 'Solana status check unavailable');
           const statusEntry = statusJson.result?.value?.[0];
           if (statusEntry && !statusEntry.err) {
             confirmationStatus = statusEntry.confirmationStatus || 'confirmed';
@@ -2098,10 +2209,10 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
         }),
       });
 
-      const data = (await upstream.json()) as {
+      const data = await safeReadUpstreamJson<{
         result?: string;
         error?: { message?: string };
-      };
+      }>(upstream, 'Devnet faucet returned an unexpected response');
 
       if (data.error || !data.result) {
         res.status(502).json({
@@ -2123,6 +2234,51 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
       res.status(502).json({ error: message });
     }
   });
+
+  // Ensure unmatched /api/* routes always return JSON (never Vite/SPA <!doctype html>)
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'API route not found.' });
+  });
+
+  // Global Express JSON error handler (catches body-parser SyntaxError / 413 PayloadTooLargeError
+  // before Express can emit its default HTML error page).
+  app.use(
+    (
+      err: unknown,
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction
+    ) => {
+      if (res.headersSent) {
+        next(err);
+        return;
+      }
+      const errObj = err as { status?: number; statusCode?: number; type?: string; message?: string };
+      if (errObj?.type === 'entity.too.large' || errObj?.status === 413) {
+        res.status(413).json({
+          error: 'Image payload is too large. Please retake the photo and try again.',
+        });
+        return;
+      }
+      if (err instanceof SyntaxError && errObj?.status === 400) {
+        res.status(400).json({
+          error: 'Malformed JSON request body.',
+        });
+        return;
+      }
+      if (req.path.startsWith('/api')) {
+        const status =
+          typeof errObj?.status === 'number' && errObj.status >= 400 && errObj.status < 600
+            ? errObj.status
+            : 500;
+        res.status(status).json({
+          error: errObj?.message || 'Internal server error.',
+        });
+        return;
+      }
+      next(err);
+    }
+  );
 
   return app;
 }

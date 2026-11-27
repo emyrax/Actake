@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BarChart3,
   CalendarDays,
+  Loader2,
   MapPin,
   Search,
   Settings,
@@ -58,6 +59,7 @@ import {
 } from './data/localStore';
 import { alarmAudio } from './utils/alarmAudio';
 import { formatClockTime12h } from './utils/timeUtils';
+import { safeFetchJson } from './utils/safeFetchJson';
 import { BrandMark } from './components/BrandMark';
 import { ActakeLandingPage } from './components/landing/ActakeLandingPage';
 import { HomeView } from './components/HomeView';
@@ -140,10 +142,12 @@ export default function App() {
     }, 3800);
   }, []);
 
-  // Solana Devnet telemetry
+  // Solana Devnet telemetry (live SOL, SPL USDC, Token-2022 SKR & slot)
   const [devnet, setDevnet] = useState<DevnetSyncState>({
     slot: null,
     solBalance: null,
+    usdcBalance: null,
+    skrBalance: null,
     blockhash: null,
     lastSyncedAt: null,
     syncing: false,
@@ -396,6 +400,8 @@ export default function App() {
         setDevnet({
           slot: result.slot,
           solBalance: result.solBalance,
+          usdcBalance: result.usdcBalance,
+          skrBalance: result.skrBalance,
           blockhash: result.blockhash,
           lastSyncedAt: Date.now(),
           syncing: false,
@@ -406,8 +412,8 @@ export default function App() {
             'success',
             'Solana Devnet Synced',
             `Slot #${result.slot.toLocaleString()}${
-              result.solBalance !== null ? ` · ${result.solBalance.toFixed(4)} SOL` : ''
-            }`
+              result.usdcBalance !== null ? ` · $${result.usdcBalance.toFixed(2)} USDC` : ''
+            }${result.solBalance !== null ? ` · ${result.solBalance.toFixed(4)} SOL` : ''}`
           );
         }
       } catch (err) {
@@ -446,7 +452,15 @@ export default function App() {
           ])
         ).slice(0, 10);
 
-        const resp = await fetch('/api/ai/challenge', {
+        const payload = await safeFetchJson<{
+          challengeId: string;
+          itemName: string;
+          visualCue: string;
+          antiCheatRule: string;
+          referenceImageDataUrl: string;
+          generatedAt: number;
+          model: string;
+        }>('/api/ai/challenge', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -455,12 +469,9 @@ export default function App() {
             environmentHint: stake.environmentHint,
             recentItems: combinedRecent,
           }),
+          retries: 1,
+          fallbackError: 'Failed to generate AI verification challenge.',
         });
-
-        const payload = await resp.json();
-        if (!resp.ok) {
-          throw new Error(payload.error || 'Failed to generate AI verification challenge.');
-        }
 
         if (payload.itemName) {
           recentGeneratedItemsRef.current = [
@@ -610,30 +621,6 @@ export default function App() {
     setInLiveCamera(false);
     setCelebrationReceipt(null);
     pushToast('info', 'Wallet Disconnected', 'Your local Solana session has been cleared.');
-  };
-
-  // Fund or withdraw available Actake vault balance
-  const handleAdjustVaultBalance = (kind: 'fund' | 'withdraw', amount: number, token: TokenType) => {
-    updateUserData((prev) => {
-      const delta = kind === 'fund' ? amount : -amount;
-      if (token === 'USDC') {
-        return {
-          ...prev,
-          earnedUsdcBalance: Math.max(0, Number((prev.earnedUsdcBalance + delta).toFixed(2))),
-        };
-      }
-      return {
-        ...prev,
-        earnedSkrBalance: Math.max(0, Number((prev.earnedSkrBalance + delta).toFixed(2))),
-      };
-    });
-    pushToast(
-      'success',
-      kind === 'fund' ? 'Vault Funded' : 'Withdrawal Complete',
-      kind === 'fund'
-        ? `Added $${amount.toFixed(2)} ${token} to your Actake staking vault.`
-        : `Withdrew $${amount.toFixed(2)} ${token} back to your Solana wallet.`
-    );
   };
 
   // Create stake via actake_escrow::join_pool bound to live Solana Devnet blockhash
@@ -827,25 +814,26 @@ export default function App() {
     let slashedBonus = ringingStake.slashedBonusEstimate;
     let totalEarned = Number((principalAmount + slashedBonus).toFixed(2));
     try {
-      const quoteResp = await fetch(
-        `/api/pools/${encodeURIComponent(ringingPoolId || ringingStake.id)}/settle`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userPubkey: wallet.publicKey,
-            fallbackPrincipal: ringingStake.amount,
-            fallbackToken: ringingStake.token,
-          }),
-        }
-      );
-      if (quoteResp.ok) {
-        const quoteData = await quoteResp.json();
-        if (quoteData?.quote) {
-          principalAmount = Number(quoteData.quote.principalAmount ?? principalAmount);
-          slashedBonus = Number(quoteData.quote.netSlashedBonus ?? slashedBonus);
-          totalEarned = Number(quoteData.quote.totalPayout ?? totalEarned);
-        }
+      const quoteData = await safeFetchJson<{
+        quote?: {
+          principalAmount?: number;
+          netSlashedBonus?: number;
+          totalPayout?: number;
+        };
+      }>(`/api/pools/${encodeURIComponent(ringingPoolId || ringingStake.id)}/settle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userPubkey: wallet.publicKey,
+          fallbackPrincipal: ringingStake.amount,
+          fallbackToken: ringingStake.token,
+        }),
+        retries: 0,
+      });
+      if (quoteData?.quote) {
+        principalAmount = Number(quoteData.quote.principalAmount ?? principalAmount);
+        slashedBonus = Number(quoteData.quote.netSlashedBonus ?? slashedBonus);
+        totalEarned = Number(quoteData.quote.totalPayout ?? totalEarned);
       }
     } catch {
       // fall back cleanly to local estimate
@@ -1363,8 +1351,10 @@ export default function App() {
               <HomeView
                 nowMs={nowMs}
                 walletLabel={shortenAddress(wallet.publicKey, 4)}
+                walletAddress={wallet.publicKey}
                 connectionKind={wallet.connectionKind}
                 stakes={userData.stakes}
+                history={userData.history}
                 streakDays={userData.streakDays}
                 earnedUsdcBalance={userData.earnedUsdcBalance}
                 earnedSkrBalance={userData.earnedSkrBalance}
@@ -1379,9 +1369,9 @@ export default function App() {
                 onOpenMissions={() => setActiveTab('missions')}
                 onOpenAlarmSettings={() => setAlarmSettingsOpen(true)}
                 onOpenPollarFund={handleOpenPollarFund}
+                onOpenWalletSheet={() => setWalletSheetOpen(true)}
                 onTriggerTestAlarm={triggerAlarmForStake}
                 onOpenSquadLobby={navigateToSquadLobby}
-                onAdjustVaultBalance={handleAdjustVaultBalance}
                 onClaimVerifiedStake={handleClaimVerifiedStake}
                 claimingStakeId={claimingStakeId}
                 onSlashPersonalStake={handleSlashPersonalStake}
@@ -1635,23 +1625,36 @@ export default function App() {
         </div>
       )}
 
-      {/* Live Wallet Connection / Escrow Stake Signing Loader Overlay */}
-      {(connectingWallet || submittingStake) && (
+      {/* Non-Blocking Background Stake Transaction Progress Indicator (never covers wallet/Pollar modals) */}
+      {submittingStake && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-20 right-4 z-30 pointer-events-none max-w-[calc(100vw-2rem)]"
+        >
+          <div className="rounded-2xl bg-[#141416]/95 text-white border border-white/12 px-4 py-3 shadow-lg flex items-center gap-3 backdrop-blur-xs">
+            <Loader2 className="w-4 h-4 animate-spin text-[#F16A2E] shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-bold leading-tight">
+                Processing Stake Transaction...
+              </div>
+              <div className="text-[11px] text-white/70 leading-tight mt-0.5">
+                Confirm in your wallet or Pollar prompt
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live Wallet Connection Loader Overlay (non-blocking during stake submission so wallet/Pollar modals stay visible) */}
+      {connectingWallet && (
         <div className="fixed inset-0 z-[65] bg-[#111114]/55 backdrop-blur-xs flex items-center justify-center p-6">
           <div className="w-full max-w-sm rounded-[32px] bg-[#FFF8F4] border border-[#F2E2D8] px-6 py-8 shadow-2xl">
             <MascotLoader
               size="xl"
               theme="light"
-              title={
-                submittingStake
-                  ? 'Locking Stake in Escrow...'
-                  : 'Connecting Solana Wallet...'
-              }
-              subtitle={
-                submittingStake
-                  ? 'Confirming your Solana commitment & arming your daily alarm'
-                  : 'Approve your wallet signature to continue'
-              }
+              title="Connecting Solana Wallet..."
+              subtitle="Approve your wallet signature to continue"
             />
           </div>
         </div>

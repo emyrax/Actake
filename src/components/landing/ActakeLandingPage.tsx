@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { DiscoveredWalletOption, PlatformCompatibility } from '../../types/actake';
 import { MascotDisplay } from '../MascotDisplay';
+import { UnifiedWalletList } from '../UnifiedWalletList';
 import { ActakeLogo, AppleIcon, GooglePlayIcon } from './BrandIcons';
 import { HeroSection } from './HeroSection';
 
@@ -432,73 +433,15 @@ export const ActakeLandingPage: React.FC<ActakeLandingPageProps> = ({
               </div>
             )}
 
-            {/* Recommended: Pollar One-Tap Sign-In */}
-            <button
-              type="button"
-              disabled={connecting}
-              onClick={() => {
+            <UnifiedWalletList
+              wallets={wallets}
+              mode="connect"
+              busy={connecting}
+              onSelect={(id) => {
                 setConnectOpen(false);
-                onConnect('pollar:connect');
+                onConnect(id);
               }}
-              className="actake-orange-cta w-full min-h-[54px] rounded-2xl px-5 py-3.5 text-white font-semibold text-[15px] flex items-center justify-between gap-3 mb-4 transition-all active:scale-[0.99] disabled:opacity-60 cursor-pointer"
-            >
-              <span className="flex items-center gap-3 text-left">
-                <span className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                  <ShieldCheck className="w-5 h-5" />
-                </span>
-                <span>
-                  <span className="block leading-tight">Continue with Pollar</span>
-                  <span className="block text-[12px] font-medium text-white/85">
-                    Google, Email, Passkey or Embedded Solana Wallet
-                  </span>
-                </span>
-              </span>
-              {connecting ? (
-                <Loader2 className="w-5 h-5 animate-spin shrink-0" />
-              ) : (
-                <ArrowRight className="w-5 h-5 shrink-0" />
-              )}
-            </button>
-
-            <div className="flex items-center gap-3 my-4">
-              <span className="h-px flex-1 bg-slate-200" />
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#718096]">
-                Or Connect Solana Wallet
-              </span>
-              <span className="h-px flex-1 bg-slate-200" />
-            </div>
-
-            <div className="space-y-2.5">
-              {wallets.map((w) => (
-                <button
-                  key={w.id}
-                  type="button"
-                  disabled={connecting}
-                  onClick={() => {
-                    setConnectOpen(false);
-                    onConnect(w.id);
-                  }}
-                  className="w-full min-h-[56px] rounded-2xl border border-[#E8EDF5] hover:border-[#FF7A00] hover:bg-[#FFF9F3] px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors disabled:opacity-60 cursor-pointer"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="w-9 h-9 rounded-xl bg-[#F4F7FC] text-[#111318] flex items-center justify-center shrink-0">
-                      <Wallet className="w-4 h-4 text-[#FF7A00]" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[14px] font-bold text-[#111318] truncate">{w.name}</p>
-                      <p className="text-[12px] text-[#718096] truncate">{w.description}</p>
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-[#4A5568] shrink-0">
-                    {w.kind === 'mwa'
-                      ? 'Seeker'
-                      : w.kind === 'browser-vault'
-                        ? 'Instant'
-                        : 'Wallet'}
-                  </span>
-                </button>
-              ))}
-            </div>
+            />
 
             <p className="mt-5 text-[12px] text-center text-[#718096]">
               {platform.mwaSupported
