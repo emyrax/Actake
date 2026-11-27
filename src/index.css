@@ -390,6 +390,76 @@
   will-change: transform, opacity;
 }
 
+/* Premium Auth Stage Ambient Glow & Slideshow Motion (compositor-only) */
+.actake-auth-glow-stage {
+  background-color: #09090D;
+  background-image:
+    radial-gradient(ellipse 68% 44% at 50% 0%, rgba(241, 106, 46, 0.42) 0%, rgba(194, 65, 12, 0.14) 44%, rgba(9, 9, 13, 0) 76%),
+    radial-gradient(ellipse 46% 52% at 0% 58%, rgba(234, 88, 12, 0.28) 0%, rgba(9, 9, 13, 0) 70%),
+    radial-gradient(ellipse 46% 52% at 100% 52%, rgba(241, 106, 46, 0.30) 0%, rgba(9, 9, 13, 0) 70%),
+    radial-gradient(ellipse 60% 34% at 50% 100%, rgba(180, 62, 18, 0.22) 0%, rgba(9, 9, 13, 0) 72%);
+}
+
+@keyframes actake-ken-burns {
+  0% {
+    transform: scale(1.01) translate3d(0, 0, 0);
+  }
+  100% {
+    transform: scale(1.09) translate3d(-1.5%, -1.5%, 0);
+  }
+}
+
+@keyframes actake-slide-progress {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes actake-scan-beam {
+  0%,
+  100% {
+    transform: translate3d(0, -48px, 0);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translate3d(0, 48px, 0);
+    opacity: 0.95;
+  }
+}
+
+@keyframes actake-orbit-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.actake-ken-burns {
+  animation: actake-ken-burns 6.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  will-change: transform;
+}
+
+.actake-slide-progress-fill {
+  transform-origin: left center;
+  animation: actake-slide-progress 5.6s linear forwards;
+  will-change: transform;
+}
+
+.actake-scan-beam {
+  animation: actake-scan-beam 2.6s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.actake-orbit-slow {
+  animation: actake-orbit-slow 16s linear infinite;
+  will-change: transform;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .actake-mascot-float,
   .actake-mascot-shadow,
@@ -399,8 +469,16 @@
   .actake-plush-float,
   .actake-plush-float-delayed,
   .actake-bubble-float,
-  .actake-transfer-sweep {
+  .actake-transfer-sweep,
+  .actake-ken-burns,
+  .actake-scan-beam,
+  .actake-orbit-slow {
     animation: none;
+  }
+
+  .actake-slide-progress-fill {
+    animation: none;
+    transform: scaleX(1);
   }
 
   .actake-slash-card {

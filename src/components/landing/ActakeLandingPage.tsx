@@ -1,22 +1,16 @@
 import React, { useState } from 'react';
 import {
-  AlertCircle,
   ArrowRight,
   Camera,
   CheckCircle2,
   ChevronDown,
   Flame,
-  Loader2,
-  ShieldCheck,
   Smartphone,
-  Sparkles,
   Users,
-  Wallet,
-  X,
 } from 'lucide-react';
 import { DiscoveredWalletOption, PlatformCompatibility } from '../../types/actake';
+import { AuthPage } from '../AuthPage';
 import { MascotDisplay } from '../MascotDisplay';
-import { UnifiedWalletList } from '../UnifiedWalletList';
 import { ActakeLogo, AppleIcon, GooglePlayIcon } from './BrandIcons';
 import { HeroSection } from './HeroSection';
 
@@ -133,7 +127,10 @@ export const ActakeLandingPage: React.FC<ActakeLandingPageProps> = ({
   error,
   onConnect,
 }) => {
-  const [connectOpen, setConnectOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return /^\/(auth|login|signin)\/?$/i.test(window.location.pathname);
+  });
   const [openFaqIndex, setOpenFaqIndex] = useState<number>(0);
 
   return (
@@ -385,71 +382,20 @@ export const ActakeLandingPage: React.FC<ActakeLandingPageProps> = ({
         </div>
       </footer>
 
-      {/* Launch App / Connect Solana Wallet Modal */}
+      {/* Full-Screen Premium SaaS Auth Page */}
       {connectOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="connect-wallet-heading"
-          className="fixed inset-0 z-[60] bg-[#111318]/55 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-5"
-          onClick={() => {
+        <AuthPage
+          wallets={wallets}
+          platform={platform}
+          connecting={connecting}
+          error={error}
+          onConnect={(id) => {
+            onConnect(id);
+          }}
+          onBack={() => {
             if (!connecting) setConnectOpen(false);
           }}
-        >
-          <div
-            className="w-full sm:max-w-[460px] rounded-t-[32px] sm:rounded-[32px] bg-white border border-[#F0E3D6] shadow-2xl p-6 sm:p-7 max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4 mb-5">
-              <div>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFF2E5] text-[#FF7A00] px-3 py-1 text-[11px] font-bold uppercase tracking-wider mb-2">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Launch Actake
-                </span>
-                <h2
-                  id="connect-wallet-heading"
-                  className="text-[22px] font-bold text-[#111318] tracking-[-0.02em]"
-                >
-                  Choose how to sign in
-                </h2>
-                <p className="text-[13.5px] text-[#4A5568] mt-1">
-                  Start on web immediately or pair your Solana Mobile / Seeker wallet.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConnectOpen(false)}
-                aria-label="Close sign-in dialog"
-                className="min-h-[40px] min-w-[40px] rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-[#111318] transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {error && (
-              <div className="mb-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 flex items-start gap-2.5 text-[13px] text-red-700">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <UnifiedWalletList
-              wallets={wallets}
-              mode="connect"
-              busy={connecting}
-              onSelect={(id) => {
-                setConnectOpen(false);
-                onConnect(id);
-              }}
-            />
-
-            <p className="mt-5 text-[12px] text-center text-[#718096]">
-              {platform.mwaSupported
-                ? 'Solana Mobile Wallet Adapter (MWA) ready for Android & Seeker.'
-                : platform.summary}
-            </p>
-          </div>
-        </div>
+        />
       )}
     </div>
   );

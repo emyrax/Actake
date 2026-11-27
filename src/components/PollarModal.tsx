@@ -68,7 +68,7 @@ export const PollarModal: React.FC<PollarModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="pollar-modal-title"
-      className="fixed inset-0 z-50 bg-[#111114]/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 z-[62] bg-[#111114]/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
     >
       <div className="w-full max-w-md rounded-t-[30px] sm:rounded-[30px] bg-[#FFF8F4] border border-[#F2E2D8] p-6 space-y-5 shadow-2xl max-h-[92vh] overflow-y-auto">
         <div className="flex items-start justify-between gap-3">

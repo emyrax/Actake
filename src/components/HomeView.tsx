@@ -2,12 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowDownLeft,
+  ArrowLeftRight,
   ArrowUpRight,
   BellRing,
   BookOpen,
   Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
   Copy,
   Dumbbell,
   ExternalLink,
@@ -195,6 +197,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [vaultModalMode, setVaultModalMode] = useState<'fund' | 'withdraw' | null>(null);
   const [copiedWalletAddr, setCopiedWalletAddr] = useState(false);
   const [pendingForfeitStake, setPendingForfeitStake] = useState<StakeCommitment | null>(null);
+  const [quickActionsExpanded, setQuickActionsExpanded] = useState(false);
+  const [balanceDisplayUnit, setBalanceDisplayUnit] = useState<'USDC' | 'SOL'>('USDC');
   const [activeQuickPresetId, setActiveQuickPresetId] = useState<string | null>(null);
   const [quickStakeError, setQuickStakeError] = useState<string | null>(null);
   const [exitingSlashed, setExitingSlashed] = useState<
@@ -429,6 +433,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   // Total Vault Balance strictly in USDC (free live USDC + locked USDC stakes + live SOL equivalent in USDC)
   const combinedVaultUsd = Number((freeUsdcBalance + lockedUsdcUsd + solValueUsdc).toFixed(2));
+  const combinedVaultSol =
+    devnet.solPriceUsd !== null && devnet.solPriceUsd > 0
+      ? Number(
+          ((freeUsdcBalance + lockedUsdcUsd) / devnet.solPriceUsd + (liveSolBalance ?? 0)).toFixed(4)
+        )
+      : liveSolBalance !== null && freeUsdcBalance === 0 && lockedUsdcUsd === 0
+        ? Number(liveSolBalance.toFixed(4))
+        : null;
   const balancesLoading = devnet.syncing || (isPollarConnected && pollar.solanaBalances.loading);
   const balanceSourceLabel =
     isPollarConnected && pollar.solanaBalances.usdc !== null
@@ -638,15 +650,40 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   <span>{balanceSourceLabel}</span>
                 </span>
               </div>
-              <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1.5">
                 <span className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight tabular-nums">
-                  $
-                  {combinedVaultUsd.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
+                  {balanceDisplayUnit === 'USDC'
+                    ? `$${combinedVaultUsd.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}`
+                    : combinedVaultSol !== null
+                      ? combinedVaultSol.toLocaleString(undefined, {
+                          minimumFractionDigits: 4,
+                          maximumFractionDigits: 4,
+                        })
+                      : '—'}
                 </span>
-                <span className="text-xs font-mono font-bold text-white/60">USDC</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBalanceDisplayUnit((prev) => (prev === 'USDC' ? 'SOL' : 'USDC'))
+                  }
+                  aria-label={
+                    balanceDisplayUnit === 'USDC'
+                      ? 'Switch total balance display to SOL'
+                      : 'Switch total balance display to USDC'
+                  }
+                  title={
+                    balanceDisplayUnit === 'USDC'
+                      ? 'Switch total to SOL'
+                      : 'Switch total to USDC'
+                  }
+                  className="min-h-[34px] px-2.5 py-1 rounded-full bg-white/12 hover:bg-white/22 border border-white/15 text-xs font-mono font-bold text-white inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                >
+                  <span>{balanceDisplayUnit}</span>
+                  <ArrowLeftRight className="w-3 h-3 text-[#F16A2E] shrink-0" />
+                </button>
                 {solChange24hPct !== null && (
                   <span
                     className={`inline-flex items-center gap-0.5 text-xs font-mono font-bold tabular-nums ${
@@ -658,7 +695,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       {solChange24hPct >= 0 ? '+' : ''}
                       {solChange24hPct.toFixed(2)}%
                     </span>
-                    {solDelta24hUsdc !== null && (
+                    {balanceDisplayUnit === 'USDC' && solDelta24hUsdc !== null && (
                       <span className="text-[11px] opacity-85 ml-0.5">
                         ({solDelta24hUsdc >= 0 ? '+' : '-'}$
                         {Math.abs(solDelta24hUsdc).toLocaleString(undefined, {
@@ -672,6 +709,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   </span>
                 )}
               </div>
+              {balanceDisplayUnit === 'SOL' && devnet.solPriceUsd !== null && (
+                <div className="mt-0.5 text-[11px] font-mono text-white/60 tabular-nums">
+                  ≈ $
+                  {combinedVaultUsd.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}{' '}
+                  USDC · 1 SOL = ${devnet.solPriceUsd.toFixed(2)}
+                </div>
+              )}
               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/75 tabular-nums">
                 <span className="text-[#4ADE80] font-semibold">
                   ${freeUsdcBalance.toFixed(2)} USDC free
@@ -893,109 +940,94 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </div>
 
-      {/* Quick Actions Row: Instant USDC Deposit + 1-Tap Preset Stakes */}
+      {/* Quick Actions Row (Collapsed by Default): Instant USDC Deposit + 1-Tap Preset Stakes */}
       <section aria-label="Quick Actions" className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="font-display text-base sm:text-lg font-extrabold text-[#111114] tracking-tight">
-              Quick Actions
-            </h2>
-            <p className="text-xs text-[#6B6663]">
-              Deposit USDC or lock a common accountability preset in one tap
-            </p>
-          </div>
+        <div className="actake-card overflow-hidden">
           <button
             type="button"
-            onClick={onOpenMissions}
-            className="min-h-[40px] px-3 py-1.5 rounded-full text-xs font-bold text-[#F16A2E] hover:bg-[#FFF0E6] inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+            aria-expanded={quickActionsExpanded}
+            aria-controls="home-quick-actions-panel"
+            onClick={() => setQuickActionsExpanded((prev) => !prev)}
+            className="w-full min-h-[56px] px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-[#FFF9F5] transition-colors"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Custom Stake</span>
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="w-9 h-9 rounded-2xl bg-[#FFF2EA] text-[#F16A2E] flex items-center justify-center shrink-0">
+                <Zap className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="font-display text-sm sm:text-base font-extrabold text-[#111114] tracking-tight">
+                  Quick Actions
+                </div>
+                <p className="text-xs text-[#6B6663] truncate">
+                  Deposit USDC · $10 Wakeup · $25 Gym · 25 SKR Study
+                </p>
+              </div>
+            </div>
+
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#F16A2E] whitespace-nowrap shrink-0">
+              <span>{quickActionsExpanded ? 'Hide' : 'Expand'}</span>
+              <ChevronDown
+                className={`w-4 h-4 transition-transform duration-200 ${
+                  quickActionsExpanded ? 'rotate-180' : ''
+                }`}
+              />
+            </span>
           </button>
         </div>
 
-        {quickStakeError && (
-          <div
-            role="alert"
-            className="rounded-2xl bg-[#FEF2F2] border border-[#FECACA] px-4 py-3 flex items-start justify-between gap-3 text-xs text-[#991B1B]"
-          >
-            <div className="flex items-start gap-2 min-w-0">
-              <AlertCircle className="w-4 h-4 text-[#DC2626] shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <div className="font-bold">Quick stake did not complete</div>
-                <p className="text-[#B91C1C] mt-0.5 break-words">{quickStakeError}</p>
-              </div>
+        {quickActionsExpanded && (
+          <div id="home-quick-actions-panel" className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+              <p className="text-xs text-[#6B6663]">
+                Deposit USDC or lock a common accountability preset in one tap
+              </p>
+              <button
+                type="button"
+                onClick={onOpenMissions}
+                className="min-h-[40px] px-3 py-1.5 rounded-full text-xs font-bold text-[#F16A2E] hover:bg-[#FFF0E6] inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Custom Stake</span>
+              </button>
             </div>
-            <button
-              type="button"
-              aria-label="Dismiss quick stake error"
-              onClick={() => setQuickStakeError(null)}
-              className="w-8 h-8 rounded-full hover:bg-[#FEE2E2] flex items-center justify-center text-[#991B1B] shrink-0 transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Instant USDC Deposit Action Card */}
-          <div className="actake-card p-4 flex flex-col justify-between gap-3.5">
-            <div className="flex items-start justify-between gap-2.5">
-              <div className="flex items-start gap-2.5 min-w-0">
-                <span className="w-10 h-10 rounded-2xl bg-[#FFF2EA] text-[#F16A2E] flex items-center justify-center shrink-0">
-                  <ArrowDownLeft className="w-5 h-5" />
-                </span>
-                <div className="min-w-0">
-                  <div className="font-display text-sm font-extrabold text-[#111114] truncate">
-                    Deposit USDC
-                  </div>
-                  <div className="text-[11px] text-[#6B6663] mt-0.5 tabular-nums truncate">
-                    ${freeUsdcBalance.toFixed(2)} free · {isPollarConnected ? 'Pollar RAMP' : 'Devnet SPL'}
+            {quickStakeError && (
+              <div
+                role="alert"
+                className="rounded-2xl bg-[#FEF2F2] border border-[#FECACA] px-4 py-3 flex items-start justify-between gap-3 text-xs text-[#991B1B]"
+              >
+                <div className="flex items-start gap-2 min-w-0">
+                  <AlertCircle className="w-4 h-4 text-[#DC2626] shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <div className="font-bold">Quick stake did not complete</div>
+                    <p className="text-[#B91C1C] mt-0.5 break-words">{quickStakeError}</p>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  aria-label="Dismiss quick stake error"
+                  onClick={() => setQuickStakeError(null)}
+                  className="w-8 h-8 rounded-full hover:bg-[#FEE2E2] flex items-center justify-center text-[#991B1B] shrink-0 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
-            </div>
+            )}
 
-            <button
-              type="button"
-              onClick={handleInstantDepositUsdc}
-              className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-            >
-              <ArrowDownLeft className="w-3.5 h-3.5 shrink-0" />
-              <span>{isPollarConnected ? 'Deposit via RAMP' : 'Deposit USDC'}</span>
-            </button>
-          </div>
-
-          {/* 1-Tap Common Stake Preset Cards */}
-          {HOME_QUICK_STAKE_PRESETS.map((preset) => {
-            const clockFmt = formatClockTime12h(preset.alarmHour, preset.alarmMinute);
-            const isLockingThis = activeQuickPresetId === preset.id;
-            const disabled = submittingStake || activeQuickPresetId !== null;
-            const amountText =
-              preset.token === 'USDC' ? `$${preset.amount} USDC` : `${preset.amount} SKR`;
-
-            return (
-              <div
-                key={preset.id}
-                className="actake-card p-4 flex flex-col justify-between gap-3.5"
-              >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Instant USDC Deposit Action Card */}
+              <div className="actake-card p-4 flex flex-col justify-between gap-3.5">
                 <div className="flex items-start justify-between gap-2.5">
                   <div className="flex items-start gap-2.5 min-w-0">
-                    <span className="w-10 h-10 rounded-2xl bg-[#F8F3EF] text-[#111114] flex items-center justify-center shrink-0">
-                      {preset.icon === 'sunrise' && (
-                        <Sunrise className="w-4.5 h-4.5 text-[#F16A2E]" />
-                      )}
-                      {preset.icon === 'gym' && <Dumbbell className="w-4.5 h-4.5 text-[#111114]" />}
-                      {preset.icon === 'study' && (
-                        <BookOpen className="w-4.5 h-4.5 text-[#0F766E]" />
-                      )}
+                    <span className="w-10 h-10 rounded-2xl bg-[#FFF2EA] text-[#F16A2E] flex items-center justify-center shrink-0">
+                      <ArrowDownLeft className="w-5 h-5" />
                     </span>
                     <div className="min-w-0">
                       <div className="font-display text-sm font-extrabold text-[#111114] truncate">
-                        {preset.title}
+                        Deposit USDC
                       </div>
                       <div className="text-[11px] text-[#6B6663] mt-0.5 tabular-nums truncate">
-                        {clockFmt.full} · {preset.frequencyLabel} · {preset.feeLabel}
+                        ${freeUsdcBalance.toFixed(2)} free · {isPollarConnected ? 'Pollar RAMP' : 'Devnet SPL'}
                       </div>
                     </div>
                   </div>
@@ -1003,26 +1035,73 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
                 <button
                   type="button"
-                  disabled={disabled}
-                  onClick={() => void handleInstantPresetStake(preset)}
-                  className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] disabled:opacity-60 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 tabular-nums transition-colors"
+                  onClick={handleInstantDepositUsdc}
+                  className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                 >
-                  {isLockingThis ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                      <span>Locking {amountText}...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-3.5 h-3.5 text-[#F16A2E] shrink-0" />
-                      <span>Stake {amountText}</span>
-                    </>
-                  )}
+                  <ArrowDownLeft className="w-3.5 h-3.5 shrink-0" />
+                  <span>{isPollarConnected ? 'Deposit via RAMP' : 'Deposit USDC'}</span>
                 </button>
               </div>
-            );
-          })}
-        </div>
+
+              {/* 1-Tap Common Stake Preset Cards */}
+              {HOME_QUICK_STAKE_PRESETS.map((preset) => {
+                const clockFmt = formatClockTime12h(preset.alarmHour, preset.alarmMinute);
+                const isLockingThis = activeQuickPresetId === preset.id;
+                const disabled = submittingStake || activeQuickPresetId !== null;
+                const amountText =
+                  preset.token === 'USDC' ? `$${preset.amount} USDC` : `${preset.amount} SKR`;
+
+                return (
+                  <div
+                    key={preset.id}
+                    className="actake-card p-4 flex flex-col justify-between gap-3.5"
+                  >
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <span className="w-10 h-10 rounded-2xl bg-[#F8F3EF] text-[#111114] flex items-center justify-center shrink-0">
+                          {preset.icon === 'sunrise' && (
+                            <Sunrise className="w-4.5 h-4.5 text-[#F16A2E]" />
+                          )}
+                          {preset.icon === 'gym' && <Dumbbell className="w-4.5 h-4.5 text-[#111114]" />}
+                          {preset.icon === 'study' && (
+                            <BookOpen className="w-4.5 h-4.5 text-[#0F766E]" />
+                          )}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-display text-sm font-extrabold text-[#111114] truncate">
+                            {preset.title}
+                          </div>
+                          <div className="text-[11px] text-[#6B6663] mt-0.5 tabular-nums truncate">
+                            {clockFmt.full} · {preset.frequencyLabel} · {preset.feeLabel}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => void handleInstantPresetStake(preset)}
+                      className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] disabled:opacity-60 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 tabular-nums transition-colors"
+                    >
+                      {isLockingThis ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                          <span>Locking {amountText}...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-3.5 h-3.5 text-[#F16A2E] shrink-0" />
+                          <span>Stake {amountText}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Horizontal X-Axis Scrollable Calendar with Auto Month Switching */}
