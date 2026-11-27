@@ -1380,6 +1380,7 @@ export default function App() {
                 walletLabel={shortenAddress(wallet.publicKey, 4)}
                 walletAddress={wallet.publicKey}
                 connectionKind={wallet.connectionKind}
+                categories={allCategories}
                 stakes={userData.stakes}
                 history={userData.history}
                 streakDays={userData.streakDays}
@@ -1399,6 +1400,8 @@ export default function App() {
                 onOpenWalletSheet={() => setWalletSheetOpen(true)}
                 onTriggerTestAlarm={triggerAlarmForStake}
                 onOpenSquadLobby={navigateToSquadLobby}
+                onQuickCreateStake={handleCreateStake}
+                submittingStake={submittingStake}
                 onClaimVerifiedStake={handleClaimVerifiedStake}
                 claimingStakeId={claimingStakeId}
                 onSlashPersonalStake={handleSlashPersonalStake}

@@ -4,12 +4,15 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   BellRing,
+  BookOpen,
   Camera,
   Check,
   CheckCircle2,
   Copy,
+  Dumbbell,
   ExternalLink,
   Flame,
+  Loader2,
   Lock,
   Plus,
   QrCode,
@@ -17,16 +20,19 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Sunrise,
   TrendingUp,
   Users,
   Volume2,
   Wallet,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   AlarmSettings,
   DevnetSyncState,
   GlobalActivitySummary,
+  HabitCategory,
   HistoryEntry,
   StakeCommitment,
   TokenType,
@@ -56,6 +62,7 @@ interface HomeViewProps {
   walletLabel: string;
   walletAddress: string;
   connectionKind: WalletConnectionKind;
+  categories: HabitCategory[];
   stakes: StakeCommitment[];
   history: HistoryEntry[];
   streakDays: number;
@@ -75,6 +82,16 @@ interface HomeViewProps {
   onOpenWalletSheet: () => void;
   onTriggerTestAlarm: (stake: StakeCommitment) => void;
   onOpenSquadLobby: (poolId: string) => void;
+  onQuickCreateStake?: (params: {
+    category: HabitCategory;
+    amount: number;
+    token: TokenType;
+    alarmHour: number;
+    alarmMinute: number;
+    motivationNote?: string;
+    frequencyLabel?: string;
+  }) => Promise<void>;
+  submittingStake?: boolean;
   onClaimVerifiedStake?: (stake: StakeCommitment) => Promise<void>;
   claimingStakeId?: string | null;
   onSlashPersonalStake?: (stake: StakeCommitment) => Promise<void>;
@@ -84,11 +101,68 @@ interface HomeViewProps {
 
 type TimeOfDayFilter = 'all' | 'morning' | 'midday' | 'afternoon';
 
+interface HomeQuickStakePreset {
+  id: string;
+  title: string;
+  categoryId: string;
+  amount: number;
+  token: TokenType;
+  alarmHour: number;
+  alarmMinute: number;
+  frequencyLabel: string;
+  motivationNote: string;
+  feeLabel: string;
+  icon: 'sunrise' | 'gym' | 'study';
+}
+
+const HOME_QUICK_STAKE_PRESETS: HomeQuickStakePreset[] = [
+  {
+    id: 'quick-home-wakeup-10',
+    title: 'Morning Wakeup',
+    categoryId: 'morning_wakeup',
+    amount: 10,
+    token: 'USDC',
+    alarmHour: 6,
+    alarmMinute: 30,
+    frequencyLabel: 'Daily',
+    motivationNote: 'Up by 6:30 AM — live camera proof before checking messages.',
+    feeLabel: '1.5% fee',
+    icon: 'sunrise',
+  },
+  {
+    id: 'quick-home-gym-25',
+    title: 'Gym & Fitness',
+    categoryId: 'gym_fitness',
+    amount: 25,
+    token: 'USDC',
+    alarmHour: 7,
+    alarmMinute: 0,
+    frequencyLabel: 'Daily',
+    motivationNote: 'Daily workout check-in — show training gear or active set.',
+    feeLabel: '1.5% fee',
+    icon: 'gym',
+  },
+  {
+    id: 'quick-home-study-25skr',
+    title: 'Study Session',
+    categoryId: 'reading_study',
+    amount: 25,
+    token: 'SKR',
+    alarmHour: 21,
+    alarmMinute: 0,
+    frequencyLabel: 'Weekdays',
+    motivationNote: 'Focused evening study session — open book or notebook at desk.',
+    feeLabel: '0% fee',
+    icon: 'study',
+  },
+];
+
 export const HomeView: React.FC<HomeViewProps> = ({
   nowMs,
   walletLabel,
   walletAddress,
   connectionKind,
+  categories,
   stakes,
   history,
   streakDays,
@@ -108,6 +182,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onOpenWalletSheet,
   onTriggerTestAlarm,
   onOpenSquadLobby,
+  onQuickCreateStake,
+  submittingStake = false,
   onClaimVerifiedStake,
   claimingStakeId,
   onSlashPersonalStake,
@@ -119,6 +195,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [vaultModalMode, setVaultModalMode] = useState<'fund' | 'withdraw' | null>(null);
   const [copiedWalletAddr, setCopiedWalletAddr] = useState(false);
   const [pendingForfeitStake, setPendingForfeitStake] = useState<StakeCommitment | null>(null);
+  const [activeQuickPresetId, setActiveQuickPresetId] = useState<string | null>(null);
+  const [quickStakeError, setQuickStakeError] = useState<string | null>(null);
   const [exitingSlashed, setExitingSlashed] = useState<
     Record<string, { stake: StakeCommitment; originalIndex: number }>
   >({});
@@ -405,6 +483,48 @@ export const HomeView: React.FC<HomeViewProps> = ({
       window.setTimeout(() => setCopiedWalletAddr(false), 1800);
     } catch {
       // ignore clipboard errors
+    }
+  };
+
+  const handleInstantDepositUsdc = () => {
+    setQuickStakeError(null);
+    if (isPollarConnected) {
+      onOpenPollarFund();
+    } else {
+      setVaultModalMode('fund');
+    }
+  };
+
+  const handleInstantPresetStake = async (preset: HomeQuickStakePreset) => {
+    if (!onQuickCreateStake) {
+      onOpenMissions();
+      return;
+    }
+    const matchedCategory =
+      categories.find((cat) => cat.id === preset.categoryId) || categories[0];
+    if (!matchedCategory) {
+      onOpenMissions();
+      return;
+    }
+
+    setQuickStakeError(null);
+    setActiveQuickPresetId(preset.id);
+    try {
+      await onQuickCreateStake({
+        category: matchedCategory,
+        amount: preset.amount,
+        token: preset.token,
+        alarmHour: preset.alarmHour,
+        alarmMinute: preset.alarmMinute,
+        motivationNote: preset.motivationNote,
+        frequencyLabel: preset.frequencyLabel,
+      });
+    } catch (err) {
+      setQuickStakeError(
+        err instanceof Error ? err.message : 'Unable to lock preset stake right now.'
+      );
+    } finally {
+      setActiveQuickPresetId(null);
     }
   };
 
@@ -772,6 +892,138 @@ export const HomeView: React.FC<HomeViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Quick Actions Row: Instant USDC Deposit + 1-Tap Preset Stakes */}
+      <section aria-label="Quick Actions" className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="font-display text-base sm:text-lg font-extrabold text-[#111114] tracking-tight">
+              Quick Actions
+            </h2>
+            <p className="text-xs text-[#6B6663]">
+              Deposit USDC or lock a common accountability preset in one tap
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenMissions}
+            className="min-h-[40px] px-3 py-1.5 rounded-full text-xs font-bold text-[#F16A2E] hover:bg-[#FFF0E6] inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Custom Stake</span>
+          </button>
+        </div>
+
+        {quickStakeError && (
+          <div
+            role="alert"
+            className="rounded-2xl bg-[#FEF2F2] border border-[#FECACA] px-4 py-3 flex items-start justify-between gap-3 text-xs text-[#991B1B]"
+          >
+            <div className="flex items-start gap-2 min-w-0">
+              <AlertCircle className="w-4 h-4 text-[#DC2626] shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <div className="font-bold">Quick stake did not complete</div>
+                <p className="text-[#B91C1C] mt-0.5 break-words">{quickStakeError}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Dismiss quick stake error"
+              onClick={() => setQuickStakeError(null)}
+              className="w-8 h-8 rounded-full hover:bg-[#FEE2E2] flex items-center justify-center text-[#991B1B] shrink-0 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Instant USDC Deposit Action Card */}
+          <div className="actake-card p-4 flex flex-col justify-between gap-3.5">
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <span className="w-10 h-10 rounded-2xl bg-[#FFF2EA] text-[#F16A2E] flex items-center justify-center shrink-0">
+                  <ArrowDownLeft className="w-5 h-5" />
+                </span>
+                <div className="min-w-0">
+                  <div className="font-display text-sm font-extrabold text-[#111114] truncate">
+                    Deposit USDC
+                  </div>
+                  <div className="text-[11px] text-[#6B6663] mt-0.5 tabular-nums truncate">
+                    ${freeUsdcBalance.toFixed(2)} free · {isPollarConnected ? 'Pollar RAMP' : 'Devnet SPL'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleInstantDepositUsdc}
+              className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+            >
+              <ArrowDownLeft className="w-3.5 h-3.5 shrink-0" />
+              <span>{isPollarConnected ? 'Deposit via RAMP' : 'Deposit USDC'}</span>
+            </button>
+          </div>
+
+          {/* 1-Tap Common Stake Preset Cards */}
+          {HOME_QUICK_STAKE_PRESETS.map((preset) => {
+            const clockFmt = formatClockTime12h(preset.alarmHour, preset.alarmMinute);
+            const isLockingThis = activeQuickPresetId === preset.id;
+            const disabled = submittingStake || activeQuickPresetId !== null;
+            const amountText =
+              preset.token === 'USDC' ? `$${preset.amount} USDC` : `${preset.amount} SKR`;
+
+            return (
+              <div
+                key={preset.id}
+                className="actake-card p-4 flex flex-col justify-between gap-3.5"
+              >
+                <div className="flex items-start justify-between gap-2.5">
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <span className="w-10 h-10 rounded-2xl bg-[#F8F3EF] text-[#111114] flex items-center justify-center shrink-0">
+                      {preset.icon === 'sunrise' && (
+                        <Sunrise className="w-4.5 h-4.5 text-[#F16A2E]" />
+                      )}
+                      {preset.icon === 'gym' && <Dumbbell className="w-4.5 h-4.5 text-[#111114]" />}
+                      {preset.icon === 'study' && (
+                        <BookOpen className="w-4.5 h-4.5 text-[#0F766E]" />
+                      )}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-display text-sm font-extrabold text-[#111114] truncate">
+                        {preset.title}
+                      </div>
+                      <div className="text-[11px] text-[#6B6663] mt-0.5 tabular-nums truncate">
+                        {clockFmt.full} · {preset.frequencyLabel} · {preset.feeLabel}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => void handleInstantPresetStake(preset)}
+                  className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] disabled:opacity-60 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 tabular-nums transition-colors"
+                >
+                  {isLockingThis ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                      <span>Locking {amountText}...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5 text-[#F16A2E] shrink-0" />
+                      <span>Stake {amountText}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       {/* Horizontal X-Axis Scrollable Calendar with Auto Month Switching */}
       <ScrollableCalendarStrip
