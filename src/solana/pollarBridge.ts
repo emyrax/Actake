@@ -361,6 +361,33 @@ export function buildPollarSolanaPaymentParams(params: {
   };
 }
 
+/**
+ * Builds a Solana SendPaymentParams payload for either real Devnet SPL USDC
+ * (passing `mint`) or native Devnet SOL fallback (omitting `mint`, amount in lamports).
+ */
+export function buildPollarDirectPaymentParams(params: {
+  destination: string;
+  asset: 'USDC' | 'SOL';
+  baseUnits?: bigint;
+  lamports?: number;
+  mint?: string;
+}): SendPaymentParams {
+  if (params.asset === 'USDC' && params.baseUnits && params.baseUnits > 0n) {
+    return {
+      chain: 'SOLANA',
+      destination: params.destination,
+      amount: params.baseUnits.toString(),
+      mint: params.mint || TOKEN_CONFIGS.USDC.mint,
+    };
+  }
+  const lamports = Math.max(5_000, Math.round(params.lamports || 0));
+  return {
+    chain: 'SOLANA',
+    destination: params.destination,
+    amount: String(lamports),
+  };
+}
+
 export function formatPollarProviderLabel(wallet: WalletInfo): string {
   if (wallet.custody === 'smart') return 'Pollar Passkey Wallet';
   if (wallet.custody === 'external') {

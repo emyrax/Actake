@@ -1249,7 +1249,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                               <div className="text-xs text-[#6B6663] mt-0.5 tabular-nums">
                                 {isSlashingOut ? (
                                   <span className="font-semibold text-[#B91C1C]">
-                                    100% transferred out → {shortTreasury}
+                                    50% to Treasury ({shortTreasury}) · 50% back to owner
                                   </span>
                                 ) : (
                                   <>
@@ -1275,7 +1275,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                               >
                                 <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
                                 <span>
-                                  -${stake.amount.toFixed(2)} {stake.token}
+                                  -${(stake.amount * 0.5).toFixed(2)} {stake.token}
                                 </span>
                               </div>
                             )}
@@ -1284,7 +1284,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                                 isSlashingOut ? 'text-[#DC2626] line-through opacity-75' : 'text-[#111114]'
                               }`}
                             >
-                              {isSlashingOut ? `-$${stake.amount.toFixed(2)}` : `$${stake.amount.toFixed(2)}`}
+                              {isSlashingOut
+                                ? `-$${(stake.amount * 0.5).toFixed(2)}`
+                                : `$${stake.amount.toFixed(2)}`}
                             </div>
                             <div
                               className={`text-xs font-semibold transition-colors duration-300 ${
@@ -1292,7 +1294,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                               }`}
                             >
                               {isSlashingOut
-                                ? 'Sent to Treasury'
+                                ? '50% Treasury · 50% Owner'
                                 : `+$${stake.slashedBonusEstimate.toFixed(2)} split`}
                             </div>
                           </div>
@@ -1409,17 +1411,22 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
           <ConfirmDialog
             open={Boolean(pendingForfeitStake)}
-            title="Forfeit Personal Stake to Treasury?"
+            title="Forfeit Personal Stake (50 / 50 Split)?"
             description={
               pendingForfeitStake
-                ? `Marking "${pendingForfeitStake.categoryName}" as missed routes 100% of $${pendingForfeitStake.amount.toFixed(2)} ${pendingForfeitStake.token} directly to the Actake Fee Treasury${
+                ? `Marking "${pendingForfeitStake.categoryName}" as missed returns 50% ($${(
+                    pendingForfeitStake.amount -
+                    Number((pendingForfeitStake.amount * 0.5).toFixed(2))
+                  ).toFixed(2)} ${pendingForfeitStake.token}) back to the owner and routes 50% ($${(
+                    pendingForfeitStake.amount * 0.5
+                  ).toFixed(2)} ${pendingForfeitStake.token}) on-chain to the Actake Fee Treasury${
                     treasuryConfig?.treasuryWallet
                       ? ` (${treasuryConfig.treasuryWallet.slice(0, 6)}...${treasuryConfig.treasuryWallet.slice(-4)})`
                       : ''
-                  } and logs a slashed receipt.`
+                  }.`
                 : ''
             }
-            confirmLabel="Slash 100% to Treasury"
+            confirmLabel="Split 50% Owner / 50% Treasury"
             cancelLabel="Keep Stake Active"
             destructive
             onCancel={() => setPendingForfeitStake(null)}

@@ -22,7 +22,7 @@ import {
   SquadPool,
   StakeCommitment,
   TokenType,
-  TreasuryConfigSummary,
+  TreasurySummaryReport,
   VerificationResult,
   WalletSession,
 } from './types/actake';
@@ -38,17 +38,21 @@ import {
 } from './solana/walletManager';
 import {
   buildActakeEscrowTransaction,
+  buildActakeEscrowTransferTransaction,
   buildDevnetExplorerTxUrl,
+  buildDevnetSolscanTxUrl,
   buildSquadBlinkUrl,
+  CONFIGURED_CLIENT_TREASURY_WALLET,
   deriveEscrowPoolPda,
   fetchDevnetTelemetry,
   fetchLatestDevnetBlockhash,
   fetchLiveSolPrice,
+  resolveDirectTransferPlan,
   resolveStakeDepositDestination,
   TOKEN_CONFIGS,
 } from './solana/actakeEscrow';
 import {
-  buildPollarSolanaPaymentParams,
+  buildPollarDirectPaymentParams,
   formatPollarProviderLabel,
 } from './solana/pollarBridge';
 import { useActakePollar } from './context/ActakePollarProvider';
@@ -165,7 +169,10 @@ export default function App() {
   const [pollarModalMode, setPollarModalMode] = useState<'connect' | 'fund' | null>(null);
   const [claimingStakeId, setClaimingStakeId] = useState<string | null>(null);
   const [slashingStakeId, setSlashingStakeId] = useState<string | null>(null);
-  const [treasuryConfig, setTreasuryConfig] = useState<TreasuryConfigSummary | null>(null);
+  const [treasurySummary, setTreasurySummary] = useState<TreasurySummaryReport | null>(null);
+  const [treasurySummaryLoading, setTreasurySummaryLoading] = useState<boolean>(true);
+  const [treasurySummaryError, setTreasurySummaryError] = useState<string | null>(null);
+  const treasuryConfig = treasurySummary?.config ?? null;
   const awaitingPollarLoginRef = useRef(false);
 
   // Ringing alarm -> Challenge Pop-up -> Live Camera -> Celebration state machine
@@ -331,23 +338,29 @@ export default function App() {
     }
   }, []);
 
-  const refreshTreasuryConfig = useCallback(async () => {
+  const refreshTreasurySummary = useCallback(async () => {
+    setTreasurySummaryLoading(true);
+    setTreasurySummaryError(null);
     try {
       const resp = await fetch('/api/treasury/summary');
-      if (!resp.ok) return;
-      const data = await resp.json();
-      if (data?.config) {
-        setTreasuryConfig(data.config as TreasuryConfigSummary);
+      if (!resp.ok) {
+        throw new Error(`Treasury summary returned HTTP ${resp.status}`);
       }
-    } catch {
-      // non-blocking config sync
+      const data = (await resp.json()) as TreasurySummaryReport;
+      setTreasurySummary(data);
+    } catch (err) {
+      setTreasurySummaryError(
+        err instanceof Error ? err.message : 'Unable to load live Escrow & Treasury balances.'
+      );
+    } finally {
+      setTreasurySummaryLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void refreshGlobalActivity();
-    void refreshTreasuryConfig();
-  }, [refreshGlobalActivity, refreshTreasuryConfig]);
+    void refreshTreasurySummary();
+  }, [refreshGlobalActivity, refreshTreasurySummary]);
 
   const navigateToSquadLobby = useCallback((poolId: string) => {
     setActiveLobbyPoolId(poolId);
@@ -650,7 +663,170 @@ export default function App() {
     pushToast('info', 'Wallet Disconnected', 'Your local Solana session has been cleared.');
   };
 
-  // Create stake via actake_escrow::join_pool bound to live Solana Devnet blockhash
+  // Shared helper: reads live sender balances + SOL/USD rate and executes a real Devnet value transfer
+  // (Devnet SPL USDC when available, else live-priced native Devnet SOL) directly to Escrow or Treasury.
+  const executeDirectOnChainTransfer = async (params: {
+    instructionType: 'join_pool' | 'claim_payout' | 'slash_personal';
+    destination: string;
+    token: TokenType;
+    usdAmount: number;
+    escrowPda: string;
+    escrowWallet?: string | null;
+    treasuryWallet?: string | null;
+    recentBlockhash: string;
+    metadata?: Record<string, string | number>;
+  }): Promise<{
+    signature: string;
+    broadcastedOnChain: boolean;
+    explorerUrl?: string;
+    solscanUrl?: string;
+    paidVia: 'pollar' | 'solana-tx';
+    settledAsset: 'USDC' | 'SOL';
+    settledAmount: number;
+    settledDestination: string;
+  }> => {
+    if (!wallet) {
+      throw new Error('Connect a Solana wallet before sending an on-chain transfer.');
+    }
+
+    // Ensure we have live balances & live SOL/USD price before deciding SPL USDC vs SOL fallback
+    let usdcBalance =
+      wallet.connectionKind === 'pollar'
+        ? (pollar.solanaBalances.usdc ?? devnet.usdcBalance)
+        : devnet.usdcBalance;
+    let solBalance =
+      wallet.connectionKind === 'pollar'
+        ? (pollar.solanaBalances.sol ?? devnet.solBalance)
+        : devnet.solBalance;
+    let solPriceUsd = devnet.solPriceUsd ?? treasurySummary?.onChain?.solPriceUsd ?? null;
+
+    if (solBalance === null || usdcBalance === null || solPriceUsd === null) {
+      try {
+        const live = await fetchDevnetTelemetry(wallet.publicKey);
+        if (solBalance === null) solBalance = live.solBalance;
+        if (usdcBalance === null) usdcBalance = live.usdcBalance;
+        if (solPriceUsd === null) solPriceUsd = live.solPriceUsd;
+      } catch {
+        if (solPriceUsd === null) {
+          const quote = await fetchLiveSolPrice();
+          solPriceUsd = quote.solPriceUsd;
+        }
+      }
+    }
+
+    const plan = resolveDirectTransferPlan({
+      token: params.token,
+      usdAmount: params.usdAmount,
+      destination: params.destination,
+      usdcBalance,
+      solBalance,
+      solPriceUsd,
+      skipBalanceCheck: wallet.connectionKind === 'pollar' && !pollar.solanaBalances.loaded && solBalance === null,
+    });
+
+    if (wallet.connectionKind === 'pollar') {
+      if (!pollar.configured) {
+        throw new Error(
+          'Pollar API key (VITE_POLLAR_API_KEY) is not configured for this deployment.'
+        );
+      }
+      if (!pollar.isAuthenticated) {
+        awaitingPollarLoginRef.current = true;
+        pollar.openLoginModal();
+        throw new Error(
+          'Your Pollar session needs to be refreshed. Complete the Pollar sign-in prompt and try again.'
+        );
+      }
+
+      const sendWithPlan = async (targetPlan: typeof plan) => {
+        const paymentParams = buildPollarDirectPaymentParams({
+          destination: targetPlan.destination,
+          asset: targetPlan.asset,
+          baseUnits: targetPlan.baseUnits,
+          lamports: targetPlan.lamports,
+          mint: targetPlan.mint,
+        });
+        return pollar.sendPayment(paymentParams);
+      };
+
+      let activePlan = plan;
+      let outcome = await sendWithPlan(activePlan);
+
+      // If Pollar attempted SPL USDC but failed due to missing/empty Devnet USDC, retry cleanly in live-priced SOL
+      if (outcome.status === 'error' && activePlan.asset === 'USDC') {
+        const solFallbackPlan = resolveDirectTransferPlan({
+          token: 'SKR', // forces native SOL fallback calculation
+          usdAmount: params.usdAmount,
+          destination: params.destination,
+          usdcBalance: 0,
+          solBalance,
+          solPriceUsd,
+          skipBalanceCheck: true,
+        });
+        const retryOutcome = await sendWithPlan(solFallbackPlan);
+        if (retryOutcome.status !== 'error') {
+          activePlan = solFallbackPlan;
+          outcome = retryOutcome;
+        }
+      }
+
+      if (outcome.status === 'success' || outcome.status === 'pending') {
+        void pollar.refreshWalletBalance();
+        return {
+          signature: outcome.hash,
+          broadcastedOnChain: true,
+          explorerUrl: buildDevnetExplorerTxUrl(outcome.hash),
+          solscanUrl: buildDevnetSolscanTxUrl(outcome.hash),
+          paidVia: 'pollar',
+          settledAsset: activePlan.asset,
+          settledAmount: activePlan.displayAmount,
+          settledDestination: activePlan.destination,
+        };
+      }
+      if (outcome.status === 'cosign_pending') {
+        return {
+          signature: `pollar-cosign-${outcome.request.id}`,
+          broadcastedOnChain: false,
+          paidVia: 'pollar',
+          settledAsset: activePlan.asset,
+          settledAmount: activePlan.displayAmount,
+          settledDestination: activePlan.destination,
+        };
+      }
+      throw new Error(
+        outcome.message ||
+          outcome.details ||
+          'Pollar payment failed. Fund your Pollar Solana wallet with Devnet SOL or Devnet USDC and try again.'
+      );
+    }
+
+    const tx = await buildActakeEscrowTransferTransaction({
+      payerPublicKey: wallet.publicKey,
+      recentBlockhash: params.recentBlockhash,
+      instructionType: params.instructionType,
+      escrowPda: params.escrowPda,
+      escrowWallet: params.escrowWallet,
+      treasuryWallet: params.treasuryWallet,
+      token: params.token,
+      amount: params.usdAmount,
+      directTransfer: plan,
+      metadata: params.metadata,
+    });
+
+    const txResult = await signActakeTransaction(tx, wallet, { requireBroadcast: true });
+    return {
+      signature: txResult.signature,
+      broadcastedOnChain: txResult.broadcastedOnChain,
+      explorerUrl: txResult.explorerUrl,
+      solscanUrl: txResult.solscanUrl || buildDevnetSolscanTxUrl(txResult.signature),
+      paidVia: 'solana-tx',
+      settledAsset: plan.asset,
+      settledAmount: plan.displayAmount,
+      settledDestination: plan.destination,
+    };
+  };
+
+  // Create stake via real Devnet SPL USDC or live-priced SOL transfer directly into Actake Escrow Wallet
   const handleCreateStake = async (params: {
     category: HabitCategory;
     amount: number;
@@ -673,73 +849,26 @@ export default function App() {
         runtimeEscrowWallet: treasuryConfig?.escrowWallet,
       });
 
-      let signature = '';
-      let broadcastedOnChain = false;
-      let explorerUrl: string | undefined;
-      let paidVia: 'pollar' | 'solana-tx' = 'solana-tx';
-
-      if (wallet.connectionKind === 'pollar') {
-        if (!pollar.configured) {
-          throw new Error(
-            'Pollar API key (VITE_POLLAR_API_KEY) is not configured for this deployment.'
-          );
-        }
-        if (!pollar.isAuthenticated) {
-          awaitingPollarLoginRef.current = true;
-          pollar.openLoginModal();
-          throw new Error(
-            'Your Pollar session needs to be refreshed. Complete the Pollar sign-in prompt and submit your stake again.'
-          );
-        }
-        if (!depositTarget.safeForRealTokens) {
-          throw new Error(
-            'Set ACTAKE_ESCROW_WALLET (public Solana address) in your environment variables before sending real Pollar stake deposits.'
-          );
-        }
-        const paymentParams = buildPollarSolanaPaymentParams({
-          destination: depositTarget.destination,
-          amount: params.amount,
-          token: params.token,
-        });
-        const outcome = await pollar.sendPayment(paymentParams);
-        if (outcome.status === 'success' || outcome.status === 'pending') {
-          signature = outcome.hash;
-          broadcastedOnChain = true;
-          explorerUrl = buildDevnetExplorerTxUrl(outcome.hash);
-          paidVia = 'pollar';
-          void pollar.refreshWalletBalance();
-        } else if (outcome.status === 'cosign_pending') {
-          signature = `pollar-cosign-${outcome.request.id}`;
-          broadcastedOnChain = false;
-          paidVia = 'pollar';
-        } else {
-          throw new Error(
-            outcome.message ||
-              outcome.details ||
-              'Pollar payment failed. Fund your Pollar Solana wallet and try again.'
-          );
-        }
-      } else {
-        const tx = buildActakeEscrowTransaction({
-          payerPublicKey: wallet.publicKey,
-          recentBlockhash,
-          instructionType: 'join_pool',
-          escrowPda,
-          escrowWallet: depositTarget.destination,
-          treasuryWallet: treasuryConfig?.treasuryWallet,
-          token: params.token,
-          amount: params.amount,
-          metadata: {
-            categoryId: params.category.id,
-            alarm: `${String(params.alarmHour).padStart(2, '0')}:${String(params.alarmMinute).padStart(2, '0')}`,
-          },
-        });
-
-        const txResult = await signActakeTransaction(tx, wallet);
-        signature = txResult.signature;
-        broadcastedOnChain = txResult.broadcastedOnChain;
-        explorerUrl = txResult.explorerUrl;
+      if (!depositTarget.safeForRealTokens) {
+        throw new Error(
+          'Set ACTAKE_ESCROW_WALLET (public Solana address) in your environment variables before staking so funds transfer on-chain to your Escrow wallet.'
+        );
       }
+
+      const transferResult = await executeDirectOnChainTransfer({
+        instructionType: 'join_pool',
+        destination: depositTarget.destination,
+        token: params.token,
+        usdAmount: params.amount,
+        escrowPda,
+        escrowWallet: depositTarget.destination,
+        treasuryWallet: treasuryConfig?.treasuryWallet || CONFIGURED_CLIENT_TREASURY_WALLET,
+        recentBlockhash,
+        metadata: {
+          categoryId: params.category.id,
+          alarm: `${String(params.alarmHour).padStart(2, '0')}:${String(params.alarmMinute).padStart(2, '0')}`,
+        },
+      });
 
       const tokenCfg = TOKEN_CONFIGS[params.token];
 
@@ -758,11 +887,15 @@ export default function App() {
         alarmSound: userData.alarmSettings.selectedSound,
         escrowPda,
         escrowWallet: depositTarget.destination,
-        treasuryWallet: treasuryConfig?.treasuryWallet || undefined,
-        joinTxSignature: signature,
-        paidVia,
-        onchainConfirmed: broadcastedOnChain,
-        explorerUrl,
+        treasuryWallet: treasuryConfig?.treasuryWallet || CONFIGURED_CLIENT_TREASURY_WALLET || undefined,
+        joinTxSignature: transferResult.signature,
+        paidVia: transferResult.paidVia,
+        settledAsset: transferResult.settledAsset,
+        settledAmount: transferResult.settledAmount,
+        settledDestination: transferResult.settledDestination,
+        onchainConfirmed: transferResult.broadcastedOnChain,
+        explorerUrl: transferResult.explorerUrl,
+        solscanUrl: transferResult.solscanUrl,
         recentBlockhash,
         createdAt: Date.now(),
         status: 'locked',
@@ -789,19 +922,25 @@ export default function App() {
           stakeAmount: params.amount,
           alarmHour: params.alarmHour,
           alarmMinute: params.alarmMinute,
-          joinedTxSignature: signature,
+          joinedTxSignature: transferResult.signature,
         }),
       }).then(() => {
         void refreshGlobalActivity();
-        if (broadcastedOnChain) {
+        void refreshTreasurySummary();
+        if (transferResult.broadcastedOnChain) {
           void syncDevnet(wallet.publicKey);
         }
       });
 
+      const settledLabel =
+        transferResult.settledAsset === 'USDC'
+          ? `$${transferResult.settledAmount.toFixed(2)} SPL USDC`
+          : `${transferResult.settledAmount.toFixed(4)} SOL (~$${params.amount.toFixed(2)})`;
+
       pushToast(
         'success',
-        'Stake Locked in Escrow',
-        `${params.category.name} · $${params.amount.toFixed(2)} ${params.token} armed for ${formatClockTime12h(params.alarmHour, params.alarmMinute).full}.`
+        'Stake Transferred to Escrow',
+        `${params.category.name} · ${settledLabel} sent on-chain to Actake Escrow for ${formatClockTime12h(params.alarmHour, params.alarmMinute).full}.`
       );
       setActiveTab('home');
     } finally {
@@ -933,25 +1072,75 @@ export default function App() {
     setCelebrationReceipt(receipt);
   };
 
-  // Sign & broadcast actake_escrow::claim_payout on Celebration screen & record in History Ledger + Supabase
+  // Sign & broadcast actake_escrow::claim_payout on Celebration screen, routing 1.5% USDC protocol fee on-chain to Treasury
   const handleClaimPayout = async () => {
     if (!wallet || !celebrationReceipt || celebrationReceipt.claimed) return;
     setClaimingPayout(true);
     try {
       const recentBlockhash = await fetchLatestDevnetBlockhash();
-      const tx = buildActakeEscrowTransaction({
-        payerPublicKey: wallet.publicKey,
-        recentBlockhash,
-        instructionType: 'claim_payout',
-        escrowPda: celebrationReceipt.escrowPda,
-        token: celebrationReceipt.token,
-        amount: celebrationReceipt.totalEarned,
-        metadata: {
-          checkinSig: celebrationReceipt.checkinTxSignature.slice(0, 16),
-        },
-      });
+      const treasuryDestination =
+        treasuryConfig?.treasuryWallet || CONFIGURED_CLIENT_TREASURY_WALLET;
+      const protocolFeeUsd =
+        celebrationReceipt.token === 'USDC'
+          ? Number(
+              (
+                (celebrationReceipt.principalAmount + celebrationReceipt.slashedBonus) *
+                (TOKEN_CONFIGS.USDC.protocolFeePct / 100)
+              ).toFixed(4)
+            )
+          : 0;
 
-      const claimResult = await signActakeTransaction(tx, wallet);
+      let claimSignature = '';
+      let claimConfirmed = false;
+      let claimExplorerUrl: string | undefined;
+      let claimSolscanUrl: string | undefined;
+      let settledAsset: 'USDC' | 'SOL' | undefined;
+      let settledAmount: number | undefined;
+      let settledDestination: string | undefined;
+
+      if (protocolFeeUsd > 0 && treasuryDestination) {
+        const feeTransfer = await executeDirectOnChainTransfer({
+          instructionType: 'claim_payout',
+          destination: treasuryDestination,
+          token: celebrationReceipt.token,
+          usdAmount: protocolFeeUsd,
+          escrowPda: celebrationReceipt.escrowPda,
+          escrowWallet: treasuryConfig?.escrowWallet,
+          treasuryWallet: treasuryDestination,
+          recentBlockhash,
+          metadata: {
+            checkinSig: celebrationReceipt.checkinTxSignature.slice(0, 16),
+            protocolFeeUsd,
+          },
+        });
+        claimSignature = feeTransfer.signature;
+        claimConfirmed = feeTransfer.broadcastedOnChain;
+        claimExplorerUrl = feeTransfer.explorerUrl;
+        claimSolscanUrl = feeTransfer.solscanUrl;
+        settledAsset = feeTransfer.settledAsset;
+        settledAmount = feeTransfer.settledAmount;
+        settledDestination = feeTransfer.settledDestination;
+      } else {
+        const tx = buildActakeEscrowTransaction({
+          payerPublicKey: wallet.publicKey,
+          recentBlockhash,
+          instructionType: 'claim_payout',
+          escrowPda: celebrationReceipt.escrowPda,
+          escrowWallet: treasuryConfig?.escrowWallet,
+          treasuryWallet: treasuryDestination,
+          token: celebrationReceipt.token,
+          amount: celebrationReceipt.totalEarned,
+          metadata: {
+            checkinSig: celebrationReceipt.checkinTxSignature.slice(0, 16),
+          },
+        });
+
+        const claimResult = await signActakeTransaction(tx, wallet);
+        claimSignature = claimResult.signature;
+        claimConfirmed = claimResult.broadcastedOnChain;
+        claimExplorerUrl = claimResult.explorerUrl;
+        claimSolscanUrl = claimResult.solscanUrl;
+      }
 
       void fetch(`/api/pools/${encodeURIComponent(celebrationReceipt.stakeId)}/settle`, {
         method: 'POST',
@@ -960,11 +1149,12 @@ export default function App() {
           userPubkey: wallet.publicKey,
           fallbackPrincipal: celebrationReceipt.principalAmount,
           fallbackToken: celebrationReceipt.token,
-          txSignature: claimResult.signature,
-          onchainConfirmed: claimResult.broadcastedOnChain,
+          txSignature: claimSignature,
+          onchainConfirmed: claimConfirmed,
         }),
       }).then(() => {
-        if (claimResult.broadcastedOnChain) {
+        void refreshTreasurySummary();
+        if (claimConfirmed) {
           void syncDevnet(wallet.publicKey);
         }
       });
@@ -978,9 +1168,13 @@ export default function App() {
         principal: celebrationReceipt.principalAmount,
         bonus: celebrationReceipt.slashedBonus,
         totalPayout: celebrationReceipt.totalEarned,
-        txSignature: claimResult.signature,
-        onchainConfirmed: claimResult.broadcastedOnChain,
-        explorerUrl: claimResult.explorerUrl,
+        txSignature: claimSignature,
+        settledAsset,
+        settledAmount,
+        settledDestination,
+        onchainConfirmed: claimConfirmed,
+        explorerUrl: claimExplorerUrl,
+        solscanUrl: claimSolscanUrl,
         status: 'claimed',
       };
 
@@ -1005,16 +1199,24 @@ export default function App() {
           ? {
               ...prev,
               claimed: true,
-              claimTxSignature: claimResult.signature,
-              claimOnchainConfirmed: claimResult.broadcastedOnChain,
-              claimExplorerUrl: claimResult.explorerUrl,
+              claimTxSignature: claimSignature,
+              claimOnchainConfirmed: claimConfirmed,
+              claimExplorerUrl,
             }
           : null
       );
       pushToast(
         'success',
         'Payout Claimed',
-        `Redeemed $${celebrationReceipt.totalEarned.toFixed(2)} ${celebrationReceipt.token} into your vault.`
+        protocolFeeUsd > 0 && settledAsset
+          ? `Redeemed $${celebrationReceipt.totalEarned.toFixed(2)} ${celebrationReceipt.token} · 1.5% protocol fee (${settledAsset === 'USDC' ? `$${settledAmount?.toFixed(2)} USDC` : `${settledAmount?.toFixed(4)} SOL`}) sent to Actake Treasury.`
+          : `Redeemed $${celebrationReceipt.totalEarned.toFixed(2)} ${celebrationReceipt.token} (0% fee) into your vault.`
+      );
+    } catch (err) {
+      pushToast(
+        'error',
+        'Claim Settlement Failed',
+        err instanceof Error ? err.message : 'Unable to settle payout on Devnet.'
       );
     } finally {
       setClaimingPayout(false);
@@ -1028,6 +1230,15 @@ export default function App() {
     try {
       let totalPayout = Number((stake.amount + stake.slashedBonusEstimate).toFixed(2));
       let bonus = stake.slashedBonusEstimate;
+      let protocolFeeUsd =
+        stake.token === 'USDC'
+          ? Number(
+              (
+                (stake.amount + stake.slashedBonusEstimate) *
+                (TOKEN_CONFIGS.USDC.protocolFeePct / 100)
+              ).toFixed(4)
+            )
+          : 0;
       try {
         const quoteResp = await fetch(`/api/pools/${encodeURIComponent(stake.id)}/settle`, {
           method: 'POST',
@@ -1043,6 +1254,9 @@ export default function App() {
           if (data?.quote) {
             bonus = Number(data.quote.netSlashedBonus ?? bonus);
             totalPayout = Number(data.quote.totalPayout ?? totalPayout);
+            if (typeof data.quote.protocolFee === 'number' && data.quote.protocolFee >= 0) {
+              protocolFeeUsd = data.quote.protocolFee;
+            }
           }
         }
       } catch {
@@ -1050,15 +1264,55 @@ export default function App() {
       }
 
       const recentBlockhash = await fetchLatestDevnetBlockhash();
-      const tx = buildActakeEscrowTransaction({
-        payerPublicKey: wallet.publicKey,
-        recentBlockhash,
-        instructionType: 'claim_payout',
-        escrowPda: stake.escrowPda,
-        token: stake.token,
-        amount: totalPayout,
-      });
-      const claimResult = await signActakeTransaction(tx, wallet);
+      const treasuryDestination =
+        stake.treasuryWallet || treasuryConfig?.treasuryWallet || CONFIGURED_CLIENT_TREASURY_WALLET;
+
+      let claimSignature = '';
+      let claimConfirmed = false;
+      let claimExplorerUrl: string | undefined;
+      let claimSolscanUrl: string | undefined;
+      let settledAsset: 'USDC' | 'SOL' | undefined;
+      let settledAmount: number | undefined;
+      let settledDestination: string | undefined;
+
+      if (stake.token === 'USDC' && protocolFeeUsd > 0 && treasuryDestination) {
+        const feeTransfer = await executeDirectOnChainTransfer({
+          instructionType: 'claim_payout',
+          destination: treasuryDestination,
+          token: stake.token,
+          usdAmount: protocolFeeUsd,
+          escrowPda: stake.escrowPda,
+          escrowWallet: stake.escrowWallet || treasuryConfig?.escrowWallet,
+          treasuryWallet: treasuryDestination,
+          recentBlockhash,
+          metadata: {
+            protocolFeeUsd,
+          },
+        });
+        claimSignature = feeTransfer.signature;
+        claimConfirmed = feeTransfer.broadcastedOnChain;
+        claimExplorerUrl = feeTransfer.explorerUrl;
+        claimSolscanUrl = feeTransfer.solscanUrl;
+        settledAsset = feeTransfer.settledAsset;
+        settledAmount = feeTransfer.settledAmount;
+        settledDestination = feeTransfer.settledDestination;
+      } else {
+        const tx = buildActakeEscrowTransaction({
+          payerPublicKey: wallet.publicKey,
+          recentBlockhash,
+          instructionType: 'claim_payout',
+          escrowPda: stake.escrowPda,
+          escrowWallet: stake.escrowWallet || treasuryConfig?.escrowWallet,
+          treasuryWallet: treasuryDestination,
+          token: stake.token,
+          amount: totalPayout,
+        });
+        const claimResult = await signActakeTransaction(tx, wallet);
+        claimSignature = claimResult.signature;
+        claimConfirmed = claimResult.broadcastedOnChain;
+        claimExplorerUrl = claimResult.explorerUrl;
+        claimSolscanUrl = claimResult.solscanUrl;
+      }
 
       void fetch(`/api/pools/${encodeURIComponent(stake.id)}/settle`, {
         method: 'POST',
@@ -1067,9 +1321,11 @@ export default function App() {
           userPubkey: wallet.publicKey,
           fallbackPrincipal: stake.amount,
           fallbackToken: stake.token,
-          txSignature: claimResult.signature,
-          onchainConfirmed: claimResult.broadcastedOnChain,
+          txSignature: claimSignature,
+          onchainConfirmed: claimConfirmed,
         }),
+      }).then(() => {
+        void refreshTreasurySummary();
       });
 
       const historyEntry: HistoryEntry = {
@@ -1081,9 +1337,13 @@ export default function App() {
         principal: stake.amount,
         bonus,
         totalPayout,
-        txSignature: claimResult.signature,
-        onchainConfirmed: claimResult.broadcastedOnChain,
-        explorerUrl: claimResult.explorerUrl,
+        txSignature: claimSignature,
+        settledAsset,
+        settledAmount,
+        settledDestination,
+        onchainConfirmed: claimConfirmed,
+        explorerUrl: claimExplorerUrl,
+        solscanUrl: claimSolscanUrl,
         status: 'claimed',
       };
 
@@ -1101,39 +1361,59 @@ export default function App() {
         history: [historyEntry, ...prev.history],
       }));
 
-      if (claimResult.broadcastedOnChain) {
+      if (claimConfirmed) {
         void syncDevnet(wallet.publicKey);
       }
       pushToast(
         'success',
         'Payout Settled',
-        `Redeemed $${totalPayout.toFixed(2)} ${stake.token} for ${stake.categoryName}.`
+        protocolFeeUsd > 0 && settledAsset
+          ? `Redeemed $${totalPayout.toFixed(2)} ${stake.token} · 1.5% protocol fee sent on-chain to Actake Treasury.`
+          : `Redeemed $${totalPayout.toFixed(2)} ${stake.token} for ${stake.categoryName}.`
+      );
+    } catch (err) {
+      pushToast(
+        'error',
+        'Payout Settlement Failed',
+        err instanceof Error ? err.message : 'Unable to settle verified payout.'
       );
     } finally {
       setClaimingStakeId(null);
     }
   };
 
-  // Settle a missed/forfeited personal commitment: 100% routed to Actake Fee Treasury
+  // Settle a missed/forfeited personal commitment: 50% returned to owner, 50% transferred on-chain directly to Actake Fee Treasury
   const handleSlashPersonalStake = async (stake: StakeCommitment) => {
     if (!wallet || stake.status !== 'locked') return;
     setSlashingStakeId(stake.id);
     try {
+      const treasuryDestination =
+        stake.treasuryWallet || treasuryConfig?.treasuryWallet || CONFIGURED_CLIENT_TREASURY_WALLET;
+      if (!treasuryDestination) {
+        throw new Error(
+          'Set ACTAKE_TREASURY_WALLET (public Solana address) in your environment variables before slashing so the 50% Treasury share transfers on-chain.'
+        );
+      }
+
+      const treasuryShareUsd = Number((stake.amount * 0.5).toFixed(2));
+      const ownerRefundUsd = Number((stake.amount - treasuryShareUsd).toFixed(2));
+
       const recentBlockhash = await fetchLatestDevnetBlockhash();
-      const tx = buildActakeEscrowTransaction({
-        payerPublicKey: wallet.publicKey,
-        recentBlockhash,
+      const slashTransfer = await executeDirectOnChainTransfer({
         instructionType: 'slash_personal',
+        destination: treasuryDestination,
+        token: stake.token,
+        usdAmount: treasuryShareUsd,
         escrowPda: stake.escrowPda,
         escrowWallet: stake.escrowWallet || treasuryConfig?.escrowWallet,
-        treasuryWallet: stake.treasuryWallet || treasuryConfig?.treasuryWallet,
-        token: stake.token,
-        amount: stake.amount,
+        treasuryWallet: treasuryDestination,
+        recentBlockhash,
         metadata: {
-          routing: '100_percent_treasury',
+          routing: '50_owner_50_treasury',
+          treasuryShareUsd,
+          ownerRefundUsd,
         },
       });
-      const slashTx = await signActakeTransaction(tx, wallet);
 
       const resp = await fetch(`/api/pools/${encodeURIComponent(stake.id)}/slash`, {
         method: 'POST',
@@ -1143,8 +1423,8 @@ export default function App() {
           poolTitle: stake.categoryName,
           stakeAmount: stake.amount,
           tokenSymbol: stake.token,
-          txSignature: slashTx.signature,
-          onchainConfirmed: slashTx.broadcastedOnChain,
+          txSignature: slashTransfer.signature,
+          onchainConfirmed: slashTransfer.broadcastedOnChain,
         }),
       });
 
@@ -1153,18 +1433,27 @@ export default function App() {
         throw new Error(errBody.error || 'Failed to record personal stake slash.');
       }
 
+      const settledLabel =
+        slashTransfer.settledAsset === 'USDC'
+          ? `$${slashTransfer.settledAmount.toFixed(2)} SPL USDC`
+          : `${slashTransfer.settledAmount.toFixed(4)} SOL (~$${treasuryShareUsd.toFixed(2)})`;
+
       const historyEntry: HistoryEntry = {
         id: `hist-slash-${Date.now()}`,
         dateIso: new Date().toISOString(),
         habitTitle: stake.categoryName,
-        verifiedItem: 'Missed Personal Stake → 100% Treasury',
+        verifiedItem: `Missed Stake → 50% Owner ($${ownerRefundUsd.toFixed(2)}) · 50% Treasury (${settledLabel})`,
         token: stake.token,
         principal: stake.amount,
         bonus: 0,
-        totalPayout: 0,
-        txSignature: slashTx.signature,
-        onchainConfirmed: slashTx.broadcastedOnChain,
-        explorerUrl: slashTx.explorerUrl,
+        totalPayout: ownerRefundUsd,
+        txSignature: slashTransfer.signature,
+        settledAsset: slashTransfer.settledAsset,
+        settledAmount: slashTransfer.settledAmount,
+        settledDestination: slashTransfer.settledDestination,
+        onchainConfirmed: slashTransfer.broadcastedOnChain,
+        explorerUrl: slashTransfer.explorerUrl,
+        solscanUrl: slashTransfer.solscanUrl,
         status: 'slashed',
       };
 
@@ -1172,22 +1461,38 @@ export default function App() {
         ...prev,
         stakes: prev.stakes.map((s) =>
           s.id === stake.id
-            ? { ...s, status: 'slashed', slashedTxSignature: slashTx.signature }
+            ? {
+                ...s,
+                status: 'slashed',
+                slashedTxSignature: slashTransfer.signature,
+                settledAsset: slashTransfer.settledAsset,
+                settledAmount: slashTransfer.settledAmount,
+                settledDestination: slashTransfer.settledDestination,
+                solscanUrl: slashTransfer.solscanUrl,
+              }
             : s
         ),
+        earnedUsdcBalance:
+          stake.token === 'USDC'
+            ? Number((prev.earnedUsdcBalance + ownerRefundUsd).toFixed(2))
+            : prev.earnedUsdcBalance,
+        earnedSkrBalance:
+          stake.token === 'SKR'
+            ? Number((prev.earnedSkrBalance + ownerRefundUsd).toFixed(2))
+            : prev.earnedSkrBalance,
         history: [historyEntry, ...prev.history],
       }));
 
       void refreshGlobalActivity();
-      void refreshTreasuryConfig();
-      if (slashTx.broadcastedOnChain) {
+      void refreshTreasurySummary();
+      if (slashTransfer.broadcastedOnChain) {
         void syncDevnet(wallet.publicKey);
       }
 
       pushToast(
         'info',
-        'Forfeited Stake Routed to Treasury',
-        `100% of $${stake.amount.toFixed(2)} ${stake.token} (${stake.categoryName}) credited to Actake Fee Treasury.`
+        'Forfeited Stake Split 50 / 50',
+        `50% (${settledLabel}) transferred on-chain to Actake Fee Treasury · 50% ($${ownerRefundUsd.toFixed(2)} ${stake.token}) returned to owner.`
       );
     } catch (err) {
       pushToast(
@@ -1518,6 +1823,10 @@ export default function App() {
                 alarmSettings={userData.alarmSettings}
                 streakDays={userData.streakDays}
                 actPoints={userData.actPoints}
+                treasurySummary={treasurySummary}
+                treasurySummaryLoading={treasurySummaryLoading}
+                treasurySummaryError={treasurySummaryError}
+                onRefreshTreasurySummary={() => void refreshTreasurySummary()}
                 onOpenWalletSheet={() => setWalletSheetOpen(true)}
                 onOpenReadinessDrawer={() => setReadinessDrawerOpen(true)}
                 onOpenAlarmSettings={() => setAlarmSettingsOpen(true)}

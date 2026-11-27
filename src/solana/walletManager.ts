@@ -11,6 +11,7 @@ import { ensureMwaRegistered } from './registerMwa';
 import {
   broadcastSignedTransactionToDevnet,
   buildDevnetExplorerTxUrl,
+  buildDevnetSolscanTxUrl,
   sha256Bytes,
 } from './actakeEscrow';
 
@@ -314,6 +315,7 @@ export interface SignedActakeTxResult {
   signedVia: string;
   broadcastedOnChain: boolean;
   explorerUrl?: string;
+  solscanUrl?: string;
 }
 
 /**
@@ -438,8 +440,11 @@ function retargetTransactionSigner(tx: Transaction, newSigner: PublicKey): Trans
  */
 export async function signActakeTransaction(
   tx: Transaction,
-  session: WalletSession
+  session: WalletSession,
+  options?: { requireBroadcast?: boolean }
 ): Promise<SignedActakeTxResult> {
+  const requireBroadcast = Boolean(options?.requireBroadcast);
+
   if (session.connectionKind === 'wallet-standard' || session.connectionKind === 'mwa') {
     const rehydrated = await rehydrateStandardWallet(session);
     if (!rehydrated) {
@@ -475,6 +480,7 @@ export async function signActakeTransaction(
           signedVia: session.walletName,
           broadcastedOnChain: true,
           explorerUrl: buildDevnetExplorerTxUrl(sig),
+          solscanUrl: buildDevnetSolscanTxUrl(sig),
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : '';
@@ -499,8 +505,14 @@ export async function signActakeTransaction(
             signedVia: session.walletName,
             broadcastedOnChain: true,
             explorerUrl: broadcast.explorerUrl,
+            solscanUrl: buildDevnetSolscanTxUrl(broadcast.signature),
           };
-        } catch {
+        } catch (broadcastErr) {
+          if (requireBroadcast) {
+            throw broadcastErr instanceof Error
+              ? broadcastErr
+              : new Error('Solana Devnet broadcast failed. Check your Devnet SOL/USDC balance and try again.');
+          }
           const parsedTx = Transaction.from(result.signedTransaction);
           const sig = parsedTx.signature
             ? bs58.encode(parsedTx.signature)
@@ -535,8 +547,16 @@ export async function signActakeTransaction(
       signedVia: session.walletName,
       broadcastedOnChain: true,
       explorerUrl: broadcast.explorerUrl,
+      solscanUrl: buildDevnetSolscanTxUrl(broadcast.signature),
     };
-  } catch {
+  } catch (broadcastErr) {
+    if (requireBroadcast) {
+      throw broadcastErr instanceof Error
+        ? broadcastErr
+        : new Error(
+            'Your Browser Vault needs Devnet SOL to broadcast this on-chain transfer. Open Settings → Devnet Diagnostics to request a free Devnet SOL airdrop.'
+          );
+    }
     // Graceful local-signed fallback when the Browser Vault has 0 Devnet SOL gas
     const rawSig = localTx.signature;
     const signature = rawSig

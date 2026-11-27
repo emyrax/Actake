@@ -482,7 +482,7 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
                     />
                   </div>
                   <p className="text-[11px] text-[#6B6663]">
-                    Collects 1.5% USDC fees &amp; 100% solo slashes.
+                    Collects 1.5% USDC fees &amp; 50% solo slashes (50% back to owner).
                   </p>
                   {report.treasury?.treasuryWallet ? (
                     <div className="flex items-center justify-between gap-2 pt-1">
@@ -548,7 +548,7 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
                         ${treasurySummary.totals.soloSlashedUsdc.toFixed(2)}
                       </div>
                       <div className="text-[10px] text-[#877F7A] tabular-nums">
-                        {treasurySummary.totals.soloSlashedSkr.toFixed(2)} SKR (100%)
+                        {treasurySummary.totals.soloSlashedSkr.toFixed(2)} SKR (50%)
                       </div>
                     </div>
                   </div>
@@ -566,7 +566,7 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
                             </div>
                             <div className="text-[11px] text-[#6B6663]">
                               {entry.entryType === 'solo_slash'
-                                ? 'Solo Slash (100% Treasury)'
+                                ? 'Solo Slash (50% Treasury / 50% Owner)'
                                 : 'Protocol Fee (1.5%)'}{' '}
                               · {entry.status === 'swept' ? 'Swept' : 'Accrued'}
                             </div>

@@ -12,6 +12,12 @@ import { safeFetchJson } from '../utils/safeFetchJson';
 
 export const DEFAULT_ACTAKE_ESCROW_PROGRAM_ID = 'ACTKescrow111111111111111111111111111111111';
 export const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+export const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
+  'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'
+);
+export const MIN_SOL_GAS_RESERVE = 0.002;
+export const LAMPORTS_PER_SOL_NUM = 1_000_000_000;
 
 function resolveEscrowProgramId(): { programId: string; customDeployed: boolean } {
   const raw =
@@ -148,6 +154,184 @@ export function buildDevnetSolscanTxUrl(signature: string): string {
 
 export function buildDevnetExplorerAddressUrl(address: string): string {
   return `https://explorer.solana.com/address/${encodeURIComponent(address)}?cluster=devnet`;
+}
+
+export function buildDevnetSolscanAddressUrl(address: string): string {
+  return `https://solscan.io/account/${encodeURIComponent(address)}?cluster=devnet`;
+}
+
+export function isValidSolanaPublicKey(raw: string | null | undefined): boolean {
+  return parsePublicSolanaAddress(raw) !== null;
+}
+
+/**
+ * Derives the canonical Associated Token Account (ATA) address for an owner & SPL mint
+ * using pure @solana/web3.js primitives (zero external SPL package overhead).
+ */
+export async function deriveAssociatedTokenAddress(
+  owner: PublicKey,
+  mint: PublicKey
+): Promise<PublicKey> {
+  const [ata] = await PublicKey.findProgramAddress(
+    [owner.toBytes(), TOKEN_PROGRAM_ID.toBytes(), mint.toBytes()],
+    ASSOCIATED_TOKEN_PROGRAM_ID
+  );
+  return ata;
+}
+
+/**
+ * Builds an Associated Token Account Program `CreateIdempotent` instruction (opcode 1).
+ * Safely creates the destination ATA on first SPL USDC deposit without failing if it already exists.
+ */
+export function createAssociatedTokenAccountIdempotentInstruction(
+  payer: PublicKey,
+  associatedToken: PublicKey,
+  owner: PublicKey,
+  mint: PublicKey
+): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: associatedToken, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from([1]),
+  });
+}
+
+/**
+ * Builds an SPL Token `TransferChecked` instruction (opcode 12, little-endian u64 amount + u8 decimals).
+ */
+export function createSplTransferCheckedInstruction(
+  sourceAta: PublicKey,
+  mint: PublicKey,
+  destinationAta: PublicKey,
+  owner: PublicKey,
+  amountBaseUnits: bigint,
+  decimals: number
+): TransactionInstruction {
+  const data = new Uint8Array(10);
+  const view = new DataView(data.buffer);
+  view.setUint8(0, 12); // SPL Token Instruction::TransferChecked
+  view.setBigUint64(1, amountBaseUnits, true);
+  view.setUint8(9, decimals & 0xff);
+
+  return new TransactionInstruction({
+    programId: TOKEN_PROGRAM_ID,
+    keys: [
+      { pubkey: sourceAta, isSigner: false, isWritable: true },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: destinationAta, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: true, isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+}
+
+export interface ResolvedDirectTransferPlan {
+  asset: 'USDC' | 'SOL';
+  destination: string;
+  usdEquivalent: number;
+  displayAmount: number;
+  /** SPL base units when asset === 'USDC' */
+  baseUnits?: bigint;
+  mint?: string;
+  decimals?: number;
+  /** Lamports when asset === 'SOL' */
+  lamports?: number;
+  solPriceUsdUsed?: number;
+  usedSolFallback: boolean;
+}
+
+/**
+ * Resolves a real Devnet value transfer plan:
+ * 1. If staking/slashing USDC and the sender holds enough Devnet SPL USDC (plus >= 0.002 SOL gas),
+ *    settles in real Devnet SPL USDC.
+ * 2. Otherwise converts the USD amount to exact Devnet SOL lamports using the live SOL/USD price
+ *    while preserving a 0.002 SOL gas reserve in the sender wallet.
+ */
+export function resolveDirectTransferPlan(params: {
+  token: TokenType;
+  usdAmount: number;
+  destination: string;
+  usdcBalance: number | null;
+  solBalance: number | null;
+  solPriceUsd: number | null;
+  skipBalanceCheck?: boolean;
+}): ResolvedDirectTransferPlan {
+  const validDestination = parsePublicSolanaAddress(params.destination);
+  if (!validDestination) {
+    throw new Error(
+      'Destination Escrow or Treasury wallet address is missing or invalid. Configure ACTAKE_ESCROW_WALLET and ACTAKE_TREASURY_WALLET in your environment variables.'
+    );
+  }
+
+  const usdAmount = Number(params.usdAmount);
+  if (!Number.isFinite(usdAmount) || usdAmount <= 0 || usdAmount > 100_000) {
+    throw new Error('Transfer amount must be a positive USD value.');
+  }
+
+  const usdcBalance =
+    typeof params.usdcBalance === 'number' && Number.isFinite(params.usdcBalance)
+      ? params.usdcBalance
+      : 0;
+  const solBalance =
+    typeof params.solBalance === 'number' && Number.isFinite(params.solBalance)
+      ? params.solBalance
+      : null;
+
+  // Prefer real Devnet SPL USDC when staking/slashing USDC and wallet actually holds enough Devnet USDC
+  if (params.token === 'USDC' && usdcBalance >= usdAmount) {
+    if (!params.skipBalanceCheck && solBalance !== null && solBalance < MIN_SOL_GAS_RESERVE) {
+      throw new Error(
+        `You need at least ${MIN_SOL_GAS_RESERVE} Devnet SOL to pay Solana network gas fees. Request a Devnet SOL airdrop from Wallet Settings.`
+      );
+    }
+    const decimals = TOKEN_CONFIGS.USDC.decimals;
+    const baseUnits = BigInt(Math.max(1, Math.round(usdAmount * 10 ** decimals)));
+    return {
+      asset: 'USDC',
+      destination: validDestination,
+      usdEquivalent: Number(usdAmount.toFixed(2)),
+      displayAmount: Number(usdAmount.toFixed(2)),
+      baseUnits,
+      mint: TOKEN_CONFIGS.USDC.mint,
+      decimals,
+      usedSolFallback: false,
+    };
+  }
+
+  // Automatic native Devnet SOL fallback using live SOL/USD market rate
+  const liveSolPrice =
+    typeof params.solPriceUsd === 'number' && Number.isFinite(params.solPriceUsd) && params.solPriceUsd > 0
+      ? params.solPriceUsd
+      : 150;
+  const rawSolAmount = usdAmount / liveSolPrice;
+  const lamports = Math.max(5_000, Math.round(rawSolAmount * LAMPORTS_PER_SOL_NUM));
+  const exactSolAmount = Number((lamports / LAMPORTS_PER_SOL_NUM).toFixed(6));
+
+  if (!params.skipBalanceCheck && solBalance !== null) {
+    const spendableSol = Math.max(0, solBalance - MIN_SOL_GAS_RESERVE);
+    if (exactSolAmount > spendableSol) {
+      throw new Error(
+        `Insufficient Devnet balance for $${usdAmount.toFixed(2)} (~${exactSolAmount.toFixed(4)} SOL). Your wallet holds ${solBalance.toFixed(4)} SOL and ${usdcBalance.toFixed(2)} Devnet USDC (keeping ${MIN_SOL_GAS_RESERVE} SOL for gas). Fund Devnet SOL or Devnet USDC and try again.`
+      );
+    }
+  }
+
+  return {
+    asset: 'SOL',
+    destination: validDestination,
+    usdEquivalent: Number(usdAmount.toFixed(2)),
+    displayAmount: exactSolAmount,
+    lamports,
+    solPriceUsdUsed: liveSolPrice,
+    usedSolFallback: true,
+  };
 }
 
 function getSafeProgramPublicKey(): PublicKey {
@@ -580,6 +764,101 @@ export function buildActakeEscrowTransaction(params: {
     feePct: TOKEN_CONFIGS[params.token].protocolFeePct,
     amount: params.amount,
     ...(hasEd25519Ix ? { ed25519IntrospectionIx: 0 } : {}),
+    ...params.metadata,
+  });
+
+  tx.add(
+    new TransactionInstruction({
+      keys: [{ pubkey: payer, isSigner: true, isWritable: false }],
+      programId: MEMO_PROGRAM_ID,
+      data: Buffer.from(memoPayload, 'utf-8'),
+    })
+  );
+
+  return tx;
+}
+
+/**
+ * Builds a real value-bearing Solana Devnet transaction that transfers either:
+ * - Real Devnet SPL USDC (`CreateAssociatedTokenAccountIdempotent` + `TransferChecked`), OR
+ * - Real native Devnet SOL (`SystemProgram.transfer` with exact lamports)
+ * directly to `directTransfer.destination` (`ACTAKE_ESCROW_WALLET` or `ACTAKE_TREASURY_WALLET`),
+ * paired with Actake's verifiable Memo receipt.
+ */
+export async function buildActakeEscrowTransferTransaction(params: {
+  payerPublicKey: string;
+  recentBlockhash: string;
+  instructionType: 'create_pool' | 'join_pool' | 'claim_payout' | 'slash_personal';
+  escrowPda: string;
+  escrowWallet?: string | null;
+  treasuryWallet?: string | null;
+  token: TokenType;
+  amount: number;
+  directTransfer: ResolvedDirectTransferPlan;
+  metadata?: Record<string, string | number>;
+}): Promise<Transaction> {
+  const payer = new PublicKey(params.payerPublicKey);
+  const destinationPk = new PublicKey(params.directTransfer.destination);
+  const tx = new Transaction({
+    feePayer: payer,
+    recentBlockhash: params.recentBlockhash as NonNullable<Transaction['recentBlockhash']>,
+  });
+
+  if (
+    params.directTransfer.asset === 'USDC' &&
+    params.directTransfer.baseUnits &&
+    params.directTransfer.baseUnits > 0n
+  ) {
+    const mintPk = new PublicKey(params.directTransfer.mint || TOKEN_CONFIGS.USDC.mint);
+    const decimals = params.directTransfer.decimals ?? TOKEN_CONFIGS.USDC.decimals;
+    const [sourceAta, destAta] = await Promise.all([
+      deriveAssociatedTokenAddress(payer, mintPk),
+      deriveAssociatedTokenAddress(destinationPk, mintPk),
+    ]);
+
+    // Idempotently ensure the Escrow or Treasury wallet has its USDC ATA initialized
+    tx.add(
+      createAssociatedTokenAccountIdempotentInstruction(payer, destAta, destinationPk, mintPk)
+    );
+    // Transfer real SPL USDC directly from sender ATA to Escrow/Treasury ATA
+    tx.add(
+      createSplTransferCheckedInstruction(
+        sourceAta,
+        mintPk,
+        destAta,
+        payer,
+        params.directTransfer.baseUnits,
+        decimals
+      )
+    );
+  } else {
+    const lamports = Math.max(5_000, Math.round(params.directTransfer.lamports || 0));
+    tx.add(
+      SystemProgram.transfer({
+        fromPubkey: payer,
+        toPubkey: destinationPk,
+        lamports,
+      })
+    );
+  }
+
+  const validEscrow = parsePublicSolanaAddress(params.escrowWallet) || CONFIGURED_CLIENT_ESCROW_WALLET;
+  const validTreasury =
+    parsePublicSolanaAddress(params.treasuryWallet) || CONFIGURED_CLIENT_TREASURY_WALLET;
+
+  const memoPayload = JSON.stringify({
+    program: IS_CUSTOM_ANCHOR_ESCROW_DEPLOYED ? ACTAKE_ESCROW_PROGRAM_ID : 'actake_escrow',
+    mode: IS_CUSTOM_ANCHOR_ESCROW_DEPLOYED ? 'anchor_devnet' : 'devnet_direct_transfer',
+    ix: params.instructionType,
+    pda: params.escrowPda,
+    destination: destinationPk.toBase58(),
+    settledAsset: params.directTransfer.asset,
+    settledAmount: params.directTransfer.displayAmount,
+    usdValue: params.directTransfer.usdEquivalent,
+    ...(validEscrow ? { escrowWallet: validEscrow } : {}),
+    ...(validTreasury ? { treasuryWallet: validTreasury } : {}),
+    token: params.token,
+    feePct: TOKEN_CONFIGS[params.token].protocolFeePct,
     ...params.metadata,
   });
 

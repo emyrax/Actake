@@ -106,7 +106,7 @@ export interface TreasuryConfigInput {
   pollarSafeForRealDeposits: boolean;
   usdcProtocolFeePct: number;
   skrProtocolFeePct: number;
-  soloSlashRouting: '100_percent_treasury';
+  soloSlashRouting: '50_owner_50_treasury';
 }
 
 const USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
@@ -1520,8 +1520,7 @@ export async function recordTreasuryLedgerEntry(input: {
 /**
  * Records a missed personal (solo) commitment slash:
  * - Marks the participant slashed (idempotent).
- * - Logs a missed check-in entry for auditability.
- * - Routes 100% of the forfeited stake to the Actake Fee Treasury Ledger.
+ * - Splits the forfeited stake 50% back to the stake owner and 50% to the Actake Fee Treasury Ledger.
  */
 export async function recordPersonalSlash(input: {
   poolId: string;
@@ -1534,10 +1533,17 @@ export async function recordPersonalSlash(input: {
   txSignature: string;
   onchainConfirmed: boolean;
   oracleSignature: string;
-}): Promise<{ entry: StoredTreasuryLedgerEntry; alreadySlashed: boolean }> {
+}): Promise<{
+  entry: StoredTreasuryLedgerEntry;
+  alreadySlashed: boolean;
+  treasuryAmount: number;
+  ownerRefundAmount: number;
+}> {
   const pool = await getPoolById(input.poolId);
   const title = input.poolTitle?.trim() || pool?.title || 'Personal Accountability Stake';
-  const amount = Number((pool?.stakeAmount ?? input.stakeAmount).toFixed(2));
+  const fullStakeAmount = Number((pool?.stakeAmount ?? input.stakeAmount).toFixed(2));
+  const treasuryAmount = Number((fullStakeAmount * 0.5).toFixed(2));
+  const ownerRefundAmount = Number((fullStakeAmount - treasuryAmount).toFixed(2));
   const tokenSymbol: PoolTokenSymbol = pool?.tokenSymbol || input.tokenSymbol;
 
   const { entry, duplicate } = await recordTreasuryLedgerEntry({
@@ -1546,7 +1552,7 @@ export async function recordPersonalSlash(input: {
     userPubkey: input.userPubkey,
     entryType: 'solo_slash',
     tokenSymbol,
-    amount,
+    amount: treasuryAmount,
     escrowWallet: input.escrowWallet || pool?.poolPubkey || '',
     treasuryWallet: input.treasuryWallet,
     status: input.onchainConfirmed && Boolean(input.treasuryWallet) ? 'swept' : 'accrued',
@@ -1555,7 +1561,7 @@ export async function recordPersonalSlash(input: {
   });
 
   if (duplicate) {
-    return { entry, alreadySlashed: true };
+    return { entry, alreadySlashed: true, treasuryAmount, ownerRefundAmount };
   }
 
   const sb = getSupabase();
@@ -1569,7 +1575,7 @@ export async function recordPersonalSlash(input: {
       await sb
         .from('pools')
         .update({
-          slashed_pot_available: Number((pool.slashedPotAvailable + amount).toFixed(2)),
+          slashed_pot_available: Number((pool.slashedPotAvailable + treasuryAmount).toFixed(2)),
           is_settled: pool.poolType === 0 ? true : pool.isSettled,
         })
         .eq('id', pool.id);
@@ -1588,11 +1594,11 @@ export async function recordPersonalSlash(input: {
   }
   const memPool = memoryPools.get(input.poolId);
   if (memPool) {
-    memPool.slashedPotAvailable = Number((memPool.slashedPotAvailable + amount).toFixed(2));
+    memPool.slashedPotAvailable = Number((memPool.slashedPotAvailable + treasuryAmount).toFixed(2));
     if (memPool.poolType === 0) memPool.isSettled = true;
   }
 
-  return { entry, alreadySlashed: false };
+  return { entry, alreadySlashed: false, treasuryAmount, ownerRefundAmount };
 }
 
 export async function getTreasurySummary(config: TreasuryConfigInput): Promise<{

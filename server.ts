@@ -1077,7 +1077,7 @@ function resolveTreasuryConfig() {
     pollarSafeForRealDeposits: customAnchorDeployed || Boolean(escrowWallet),
     usdcProtocolFeePct: 1.5,
     skrProtocolFeePct: 0,
-    soloSlashRouting: '100_percent_treasury' as const,
+    soloSlashRouting: '50_owner_50_treasury' as const,
   };
 }
 
@@ -1725,11 +1725,150 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
   // ============================================================================
   // DUAL-WALLET ESCROW VAULT & FEE TREASURY SUMMARY (Read-only public addresses)
   // ============================================================================
+  const DEVNET_USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
+
+  async function fetchOnChainWalletSnapshot(
+    rawAddress: string | null,
+    solPriceUsd: number | null
+  ): Promise<{
+    address: string;
+    solBalance: number;
+    usdcBalance: number;
+    totalUsdEstimate: number | null;
+    solscanUrl: string;
+    explorerUrl: string;
+    reachable: boolean;
+    error?: string;
+  } | null> {
+    const validAddress = parseValidSolanaAddress(rawAddress || undefined);
+    if (!validAddress) return null;
+
+    const rpcUrl = process.env.SOLANA_RPC_URL?.trim() || 'https://api.devnet.solana.com';
+    const solscanUrl = `https://solscan.io/account/${encodeURIComponent(validAddress)}?cluster=devnet`;
+    const explorerUrl = `https://explorer.solana.com/address/${encodeURIComponent(validAddress)}?cluster=devnet`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5500);
+    try {
+      const [balResp, usdcResp] = await Promise.all([
+        fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getBalance',
+            params: [validAddress, { commitment: 'confirmed' }],
+          }),
+        }),
+        fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'getTokenAccountsByOwner',
+            params: [
+              validAddress,
+              { mint: DEVNET_USDC_MINT },
+              { encoding: 'jsonParsed', commitment: 'confirmed' },
+            ],
+          }),
+        }),
+      ]);
+
+      const balJson = (await balResp.json()) as { result?: { value?: number }; error?: unknown };
+      const usdcJson = (await usdcResp.json()) as {
+        result?: {
+          value?: Array<{
+            account?: {
+              data?: {
+                parsed?: {
+                  info?: {
+                    tokenAmount?: {
+                      uiAmount?: number | null;
+                      uiAmountString?: string;
+                    };
+                  };
+                };
+              };
+            };
+          }>;
+        };
+      };
+
+      const lamports = Number(balJson?.result?.value ?? 0);
+      const solBalance = Number.isFinite(lamports)
+        ? Number((lamports / 1_000_000_000).toFixed(6))
+        : 0;
+
+      let usdcBalance = 0;
+      const accounts = Array.isArray(usdcJson?.result?.value) ? usdcJson.result.value : [];
+      for (const acc of accounts) {
+        const tokenAmt = acc.account?.data?.parsed?.info?.tokenAmount;
+        if (typeof tokenAmt?.uiAmount === 'number' && Number.isFinite(tokenAmt.uiAmount)) {
+          usdcBalance += tokenAmt.uiAmount;
+        } else if (typeof tokenAmt?.uiAmountString === 'string') {
+          const parsed = Number.parseFloat(tokenAmt.uiAmountString);
+          if (Number.isFinite(parsed)) usdcBalance += parsed;
+        }
+      }
+      usdcBalance = Number(usdcBalance.toFixed(6));
+
+      const totalUsdEstimate =
+        typeof solPriceUsd === 'number' && Number.isFinite(solPriceUsd) && solPriceUsd > 0
+          ? Number((usdcBalance + solBalance * solPriceUsd).toFixed(2))
+          : null;
+
+      return {
+        address: validAddress,
+        solBalance,
+        usdcBalance,
+        totalUsdEstimate,
+        solscanUrl,
+        explorerUrl,
+        reachable: !balJson.error,
+      };
+    } catch {
+      return {
+        address: validAddress,
+        solBalance: 0,
+        usdcBalance: 0,
+        totalUsdEstimate: null,
+        solscanUrl,
+        explorerUrl,
+        reachable: false,
+        error: 'Solana Devnet RPC temporarily unavailable.',
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   app.get('/api/treasury/summary', async (_req, res) => {
     try {
       const config = resolveTreasuryConfig();
-      const summary = await getTreasurySummary(config);
-      res.json(summary);
+      const [summary, priceQuote] = await Promise.all([
+        getTreasurySummary(config),
+        fetchLiveSolMarketPrice().catch(() => null),
+      ]);
+      const solPriceUsd = priceQuote?.priceUsd ?? null;
+      const [escrowSnapshot, treasurySnapshot] = await Promise.all([
+        fetchOnChainWalletSnapshot(config.escrowWallet, solPriceUsd),
+        fetchOnChainWalletSnapshot(config.treasuryWallet, solPriceUsd),
+      ]);
+
+      res.json({
+        ...summary,
+        onChain: {
+          escrow: escrowSnapshot,
+          treasury: treasurySnapshot,
+          solPriceUsd,
+          fetchedAt: Date.now(),
+        },
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to load treasury summary.';
       res.status(500).json({ error: message });
@@ -1962,32 +2101,38 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
 
       const normalizedToken = tokenSymbol === 'SKR' ? 'SKR' : 'USDC';
       const treasuryConfig = resolveTreasuryConfig();
+      const expectedTreasuryShare = Number((parsedAmount * 0.5).toFixed(2));
+      const expectedOwnerRefund = Number((parsedAmount - expectedTreasuryShare).toFixed(2));
 
       const slashPayload = Buffer.from(
-        `actake:solo_slash:${poolId}:${validUserPubkey}:${parsedAmount.toFixed(2)}:${normalizedToken}:${treasuryConfig.treasuryWallet || 'treasury'}`,
+        `actake:solo_slash_50_50:${poolId}:${validUserPubkey}:${expectedTreasuryShare.toFixed(2)}:${expectedOwnerRefund.toFixed(2)}:${normalizedToken}:${treasuryConfig.treasuryWallet || 'treasury'}`,
         'utf-8'
       );
       const oracleSignature = crypto
         .sign(null, slashPayload, oracleKeys.privateKey)
         .toString('hex');
 
-      const { entry, alreadySlashed } = await recordPersonalSlash({
-        poolId,
-        poolTitle: typeof poolTitle === 'string' ? poolTitle.slice(0, 120) : undefined,
-        userPubkey: validUserPubkey,
-        stakeAmount: parsedAmount,
-        tokenSymbol: normalizedToken,
-        escrowWallet: treasuryConfig.escrowWallet || '',
-        treasuryWallet: treasuryConfig.treasuryWallet || '',
-        txSignature: typeof txSignature === 'string' ? txSignature.trim().slice(0, 140) : '',
-        onchainConfirmed: Boolean(onchainConfirmed),
-        oracleSignature,
-      });
+      const { entry, alreadySlashed, treasuryAmount, ownerRefundAmount } =
+        await recordPersonalSlash({
+          poolId,
+          poolTitle: typeof poolTitle === 'string' ? poolTitle.slice(0, 120) : undefined,
+          userPubkey: validUserPubkey,
+          stakeAmount: parsedAmount,
+          tokenSymbol: normalizedToken,
+          escrowWallet: treasuryConfig.escrowWallet || '',
+          treasuryWallet: treasuryConfig.treasuryWallet || '',
+          txSignature: typeof txSignature === 'string' ? txSignature.trim().slice(0, 140) : '',
+          onchainConfirmed: Boolean(onchainConfirmed),
+          oracleSignature,
+        });
 
       res.json({
         slashed: true,
         alreadySlashed,
-        routedToTreasuryPct: 100,
+        routedToTreasuryPct: 50,
+        returnedToOwnerPct: 50,
+        treasuryAmount,
+        ownerRefundAmount,
         treasury: treasuryConfig,
         entry,
         oraclePublicKeyHex: oracleKeys.publicKeyHex,

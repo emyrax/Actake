@@ -32,8 +32,12 @@ export interface StakeCommitment {
   joinTxSignature: string;
   slashedTxSignature?: string;
   paidVia?: 'pollar' | 'solana-tx';
+  settledAsset?: 'USDC' | 'SOL';
+  settledAmount?: number;
+  settledDestination?: string;
   onchainConfirmed?: boolean;
   explorerUrl?: string;
+  solscanUrl?: string;
   recentBlockhash: string;
   createdAt: number;
   status: 'locked' | 'ringing' | 'verified' | 'claimed' | 'slashed';
@@ -101,8 +105,12 @@ export interface HistoryEntry {
   bonus: number;
   totalPayout: number;
   txSignature: string;
+  settledAsset?: 'USDC' | 'SOL';
+  settledAmount?: number;
+  settledDestination?: string;
   onchainConfirmed?: boolean;
   explorerUrl?: string;
+  solscanUrl?: string;
   status: 'claimed' | 'verified' | 'slashed';
 }
 
@@ -320,7 +328,7 @@ export interface TreasuryConfigSummary {
   pollarSafeForRealDeposits: boolean;
   usdcProtocolFeePct: number;
   skrProtocolFeePct: number;
-  soloSlashRouting: '100_percent_treasury';
+  soloSlashRouting: '50_owner_50_treasury';
 }
 
 export interface TreasuryLedgerEntry {
@@ -339,6 +347,17 @@ export interface TreasuryLedgerEntry {
   createdAt: string;
 }
 
+export interface OnChainWalletBalanceSnapshot {
+  address: string;
+  solBalance: number;
+  usdcBalance: number;
+  totalUsdEstimate: number | null;
+  solscanUrl: string;
+  explorerUrl: string;
+  reachable: boolean;
+  error?: string;
+}
+
 export interface TreasurySummaryReport {
   storageMode: 'supabase' | 'memory';
   config: TreasuryConfigSummary;
@@ -353,5 +372,11 @@ export interface TreasurySummaryReport {
     totalTreasurySkr: number;
   };
   recentEntries: TreasuryLedgerEntry[];
+  onChain?: {
+    escrow: OnChainWalletBalanceSnapshot | null;
+    treasury: OnChainWalletBalanceSnapshot | null;
+    solPriceUsd: number | null;
+    fetchedAt: number;
+  };
 }
 

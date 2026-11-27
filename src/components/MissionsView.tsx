@@ -838,7 +838,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
             <div className="flex justify-between gap-2">
               <span className="text-[#6B6663]">Missed Personal Stake</span>
               <span className="font-semibold text-[#111114]">
-                100% → Actake Treasury
+                50% Owner / 50% → Actake Treasury
                 {treasuryConfig?.treasuryWallet
                   ? ` (${treasuryConfig.treasuryWallet.slice(0, 4)}...${treasuryConfig.treasuryWallet.slice(-4)})`
                   : ''}
