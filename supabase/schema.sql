@@ -101,13 +101,35 @@ create table if not exists public.settlements (
 create index if not exists idx_settlements_pool on public.settlements (pool_id);
 create index if not exists idx_settlements_user on public.settlements (user_pubkey);
 
+-- 5. Dual-Wallet Protocol Fee & Solo-Slash Treasury Ledger
+create table if not exists public.treasury_ledger (
+  id uuid primary key default gen_random_uuid(),
+  pool_id text not null,
+  pool_title text not null default 'Actake Commitment Pool',
+  user_pubkey text not null,
+  entry_type text not null check (entry_type in ('protocol_fee', 'solo_slash', 'zero_winner_slash')),
+  token_symbol text not null check (token_symbol in ('USDC', 'SKR')) default 'USDC',
+  amount numeric(14, 2) not null check (amount > 0),
+  escrow_wallet text not null default '',
+  treasury_wallet text not null default '',
+  status text not null check (status in ('accrued', 'swept')) default 'accrued',
+  tx_signature text not null default '',
+  oracle_signature text not null default '',
+  created_at timestamptz not null default now(),
+  unique (pool_id, user_pubkey, entry_type)
+);
+
+create index if not exists idx_treasury_ledger_created on public.treasury_ledger (created_at desc);
+create index if not exists idx_treasury_ledger_type on public.treasury_ledger (entry_type);
+
 -- Enable Row Level Security (server accesses via SUPABASE_SERVICE_ROLE_KEY)
 alter table public.pools enable row level security;
 alter table public.participants enable row level security;
 alter table public.checkins enable row level security;
 alter table public.settlements enable row level security;
+alter table public.treasury_ledger enable row level security;
 
--- Public read policies for companion web feed & Solana Blink discovery
+-- Public read policies for companion web feed, Solana Blink discovery & Treasury transparency
 drop policy if exists "Public read pools" on public.pools;
 create policy "Public read pools" on public.pools for select using (true);
 
@@ -119,3 +141,7 @@ create policy "Public read checkins" on public.checkins for select using (true);
 
 drop policy if exists "Public read settlements" on public.settlements;
 create policy "Public read settlements" on public.settlements for select using (true);
+
+drop policy if exists "Public read treasury_ledger" on public.treasury_ledger;
+create policy "Public read treasury_ledger" on public.treasury_ledger for select using (true);
+

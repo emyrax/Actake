@@ -32,6 +32,65 @@ const resolvedProgram = resolveEscrowProgramId();
 export const ACTAKE_ESCROW_PROGRAM_ID = resolvedProgram.programId;
 export const IS_CUSTOM_ANCHOR_ESCROW_DEPLOYED = resolvedProgram.customDeployed;
 
+function parsePublicSolanaAddress(raw: string | null | undefined): string | null {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return null;
+  try {
+    return new PublicKey(trimmed).toBase58();
+  } catch {
+    return null;
+  }
+}
+
+export const CONFIGURED_CLIENT_ESCROW_WALLET: string | null = parsePublicSolanaAddress(
+  typeof import.meta !== 'undefined' && import.meta.env
+    ? String(import.meta.env.VITE_ACTAKE_ESCROW_WALLET || '')
+    : ''
+);
+
+export const CONFIGURED_CLIENT_TREASURY_WALLET: string | null = parsePublicSolanaAddress(
+  typeof import.meta !== 'undefined' && import.meta.env
+    ? String(import.meta.env.VITE_ACTAKE_TREASURY_WALLET || '')
+    : ''
+);
+
+/**
+ * Resolves the safe Solana destination for real Pollar/SPL stake deposits:
+ * 1. If a custom Anchor Escrow Program is deployed, deposits target the Pool Vault PDA.
+ * 2. Otherwise, deposits target the configured Escrow Vault Wallet (client env or server config).
+ * 3. If neither is configured, returns safeForRealTokens=false so Pollar never sends real tokens to an unowned PDA.
+ */
+export function resolveStakeDepositDestination(params: {
+  poolPda: string;
+  runtimeEscrowWallet?: string | null;
+}): {
+  destination: string;
+  mode: 'anchor-pda' | 'escrow-wallet' | 'unconfigured-pda';
+  safeForRealTokens: boolean;
+} {
+  if (IS_CUSTOM_ANCHOR_ESCROW_DEPLOYED) {
+    return {
+      destination: params.poolPda,
+      mode: 'anchor-pda',
+      safeForRealTokens: true,
+    };
+  }
+  const escrowWallet =
+    parsePublicSolanaAddress(params.runtimeEscrowWallet) || CONFIGURED_CLIENT_ESCROW_WALLET;
+  if (escrowWallet) {
+    return {
+      destination: escrowWallet,
+      mode: 'escrow-wallet',
+      safeForRealTokens: true,
+    };
+  }
+  return {
+    destination: params.poolPda,
+    mode: 'unconfigured-pda',
+    safeForRealTokens: false,
+  };
+}
+
 export interface SplTokenConfig {
   symbol: TokenType;
   name: string;
@@ -339,8 +398,15 @@ export async function buildAnchorSubmitCheckinInstruction(params: {
 export function buildActakeEscrowTransaction(params: {
   payerPublicKey: string;
   recentBlockhash: string;
-  instructionType: 'create_pool' | 'join_pool' | 'submit_checkin' | 'claim_payout';
+  instructionType:
+    | 'create_pool'
+    | 'join_pool'
+    | 'submit_checkin'
+    | 'claim_payout'
+    | 'slash_personal';
   escrowPda: string;
+  escrowWallet?: string | null;
+  treasuryWallet?: string | null;
   token: TokenType;
   amount: number;
   metadata?: Record<string, string | number>;
@@ -384,11 +450,17 @@ export function buildActakeEscrowTransaction(params: {
     })
   );
 
+  const validEscrow = parsePublicSolanaAddress(params.escrowWallet) || CONFIGURED_CLIENT_ESCROW_WALLET;
+  const validTreasury =
+    parsePublicSolanaAddress(params.treasuryWallet) || CONFIGURED_CLIENT_TREASURY_WALLET;
+
   const memoPayload = JSON.stringify({
     program: IS_CUSTOM_ANCHOR_ESCROW_DEPLOYED ? ACTAKE_ESCROW_PROGRAM_ID : 'actake_escrow',
     mode: IS_CUSTOM_ANCHOR_ESCROW_DEPLOYED ? 'anchor_devnet' : 'devnet_memo_ed25519',
     ix: params.instructionType,
     pda: params.escrowPda,
+    ...(validEscrow ? { escrowWallet: validEscrow } : {}),
+    ...(validTreasury ? { treasuryWallet: validTreasury } : {}),
     token: params.token,
     mint: TOKEN_CONFIGS[params.token].mint,
     tokenProgram: TOKEN_CONFIGS[params.token].tokenProgram,

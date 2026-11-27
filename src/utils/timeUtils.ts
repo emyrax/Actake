@@ -37,6 +37,38 @@ export function isSameDayAlarm(targetMs: number, nowMs = Date.now()): 'Today' | 
     : 'Tomorrow';
 }
 
+/**
+ * Formats the time remaining from `nowMs` until the next occurrence of `hour24:minute`
+ * as a concise relative offset (e.g. "+5 mins", "+1 hour", "+18h 15m").
+ */
+export function formatTimeUntilNextDeadline(
+  hour24: number,
+  minute: number,
+  nowMs = Date.now()
+): string {
+  const now = new Date(nowMs);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const targetMinutes = hour24 * 60 + minute;
+
+  let diffMinutes = targetMinutes - nowMinutes;
+  if (diffMinutes <= 0) {
+    diffMinutes += 24 * 60;
+  }
+
+  if (diffMinutes < 60) {
+    return `+${diffMinutes} ${diffMinutes === 1 ? 'min' : 'mins'}`;
+  }
+
+  const hours = Math.floor(diffMinutes / 60);
+  const remMinutes = diffMinutes % 60;
+
+  if (remMinutes === 0) {
+    return `+${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  }
+
+  return `+${hours}h ${remMinutes}m`;
+}
+
 export function formatCountdownParts(msRemaining: number): {
   hours: string;
   minutes: string;

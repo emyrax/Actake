@@ -14,9 +14,16 @@ import {
   Smartphone,
   Sparkles,
   TriangleAlert,
+  Wallet,
   X,
 } from 'lucide-react';
-import { DevnetSyncState, PlatformCompatibility, SystemReadinessReport, WalletSession } from '../types/actake';
+import {
+  DevnetSyncState,
+  PlatformCompatibility,
+  SystemReadinessReport,
+  TreasurySummaryReport,
+  WalletSession,
+} from '../types/actake';
 import {
   buildDevnetExplorerAddressUrl,
   requestDevnetSolAirdrop,
@@ -42,6 +49,7 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
   onClose,
 }) => {
   const [report, setReport] = useState<SystemReadinessReport | null>(null);
+  const [treasurySummary, setTreasurySummary] = useState<TreasurySummaryReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -64,12 +72,19 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch('/api/system/readiness');
-      const data = await resp.json();
-      if (!resp.ok) {
+      const [readinessResp, treasuryResp] = await Promise.all([
+        fetch('/api/system/readiness'),
+        fetch('/api/treasury/summary'),
+      ]);
+      const data = await readinessResp.json();
+      if (!readinessResp.ok) {
         throw new Error(data.error || 'Could not inspect server readiness.');
       }
       setReport(data as SystemReadinessReport);
+      if (treasuryResp.ok) {
+        const tData = (await treasuryResp.json()) as TreasurySummaryReport;
+        setTreasurySummary(tData);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to fetch diagnostics.');
     } finally {
@@ -381,6 +396,195 @@ export const ReadinessDrawer: React.FC<ReadinessDrawerProps> = ({
                   generator.
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Dual-Wallet Escrow Vault & Fee Treasury Ledger */}
+          {report && (
+            <div className="actake-card p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-[#F16A2E]" />
+                  <h3 className="font-display text-sm font-extrabold text-[#111114]">
+                    Dual-Wallet Escrow Vault &amp; Fee Treasury
+                  </h3>
+                </div>
+                <StatusText
+                  ok={
+                    Boolean(report.treasury?.escrowConfigured) &&
+                    Boolean(report.treasury?.treasuryConfigured)
+                  }
+                  okLabel="Both Wallets Live"
+                  warnLabel="Set Env Wallets"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {/* Escrow Vault Wallet */}
+                <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-3.5 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-[#111114]">Escrow Vault Wallet</span>
+                    <StatusText
+                      ok={Boolean(report.treasury?.escrowConfigured)}
+                      okLabel="Active"
+                      warnLabel="Not Set"
+                    />
+                  </div>
+                  <p className="text-[11px] text-[#6B6663]">
+                    Holds active USDC &amp; SKR stake deposits.
+                  </p>
+                  {report.treasury?.escrowWallet ? (
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="font-mono text-[11px] text-[#111114] truncate">
+                        {shortenAddress(report.treasury.escrowWallet, 6)}
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void copyValue('escrowWallet', report.treasury.escrowWallet || '')
+                          }
+                          className="font-bold text-[#F16A2E] hover:underline inline-flex items-center gap-1"
+                        >
+                          {copiedField === 'escrowWallet' ? (
+                            <Check className="w-3.5 h-3.5 text-[#16A34A]" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                          <span>{copiedField === 'escrowWallet' ? 'Copied' : 'Copy'}</span>
+                        </button>
+                        <a
+                          href={buildDevnetExplorerAddressUrl(report.treasury.escrowWallet)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#6B6663] hover:text-[#F16A2E]"
+                          aria-label="Inspect Escrow Vault on Solana Explorer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="font-mono text-[11px] text-[#92400E] pt-1">
+                      Set ACTAKE_ESCROW_WALLET in Vercel env vars
+                    </p>
+                  )}
+                </div>
+
+                {/* Fee Treasury Wallet */}
+                <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-3.5 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-[#111114]">Fee Treasury Wallet</span>
+                    <StatusText
+                      ok={Boolean(report.treasury?.treasuryConfigured)}
+                      okLabel="Active"
+                      warnLabel="Not Set"
+                    />
+                  </div>
+                  <p className="text-[11px] text-[#6B6663]">
+                    Collects 1.5% USDC fees &amp; 100% solo slashes.
+                  </p>
+                  {report.treasury?.treasuryWallet ? (
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="font-mono text-[11px] text-[#111114] truncate">
+                        {shortenAddress(report.treasury.treasuryWallet, 6)}
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void copyValue('treasuryWallet', report.treasury.treasuryWallet || '')
+                          }
+                          className="font-bold text-[#F16A2E] hover:underline inline-flex items-center gap-1"
+                        >
+                          {copiedField === 'treasuryWallet' ? (
+                            <Check className="w-3.5 h-3.5 text-[#16A34A]" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                          <span>{copiedField === 'treasuryWallet' ? 'Copied' : 'Copy'}</span>
+                        </button>
+                        <a
+                          href={buildDevnetExplorerAddressUrl(report.treasury.treasuryWallet)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#6B6663] hover:text-[#F16A2E]"
+                          aria-label="Inspect Fee Treasury on Solana Explorer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="font-mono text-[11px] text-[#92400E] pt-1">
+                      Set ACTAKE_TREASURY_WALLET in Vercel env vars
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {treasurySummary && (
+                <div className="space-y-3 pt-1">
+                  <div className="grid grid-cols-3 gap-2.5 text-xs">
+                    <div className="rounded-2xl bg-white border border-[#F0E3DB] p-3">
+                      <div className="text-[11px] text-[#6B6663]">Active Escrow</div>
+                      <div className="font-mono font-extrabold text-sm text-[#111114] tabular-nums mt-0.5">
+                        ${treasurySummary.totals.activeEscrowUsdc.toFixed(2)}
+                      </div>
+                      <div className="text-[10px] text-[#877F7A] tabular-nums">
+                        {treasurySummary.totals.activeEscrowSkr.toFixed(2)} SKR
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-white border border-[#F0E3DB] p-3">
+                      <div className="text-[11px] text-[#6B6663]">Protocol Fees</div>
+                      <div className="font-mono font-extrabold text-sm text-[#16A34A] tabular-nums mt-0.5">
+                        ${treasurySummary.totals.protocolFeesUsdc.toFixed(2)}
+                      </div>
+                      <div className="text-[10px] text-[#877F7A]">1.5% USDC · 0% SKR</div>
+                    </div>
+                    <div className="rounded-2xl bg-white border border-[#F0E3DB] p-3">
+                      <div className="text-[11px] text-[#6B6663]">Solo Slashes</div>
+                      <div className="font-mono font-extrabold text-sm text-[#F16A2E] tabular-nums mt-0.5">
+                        ${treasurySummary.totals.soloSlashedUsdc.toFixed(2)}
+                      </div>
+                      <div className="text-[10px] text-[#877F7A] tabular-nums">
+                        {treasurySummary.totals.soloSlashedSkr.toFixed(2)} SKR (100%)
+                      </div>
+                    </div>
+                  </div>
+
+                  {treasurySummary.recentEntries.length > 0 ? (
+                    <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] divide-y divide-[#F2E3DA]">
+                      {treasurySummary.recentEntries.slice(0, 5).map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-bold text-[#111114] truncate">
+                              {entry.poolTitle}
+                            </div>
+                            <div className="text-[11px] text-[#6B6663]">
+                              {entry.entryType === 'solo_slash'
+                                ? 'Solo Slash (100% Treasury)'
+                                : 'Protocol Fee (1.5%)'}{' '}
+                              · {entry.status === 'swept' ? 'Swept' : 'Accrued'}
+                            </div>
+                          </div>
+                          <div className="font-mono font-bold text-[#16A34A] tabular-nums shrink-0">
+                            +${entry.amount.toFixed(2)} {entry.tokenSymbol}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-[#877F7A]">
+                      No protocol fees or forfeited solo stakes recorded yet. Completed USDC payouts
+                      and missed personal commitments appear here automatically.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

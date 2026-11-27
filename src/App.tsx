@@ -21,6 +21,7 @@ import {
   SquadPool,
   StakeCommitment,
   TokenType,
+  TreasuryConfigSummary,
   VerificationResult,
   WalletSession,
 } from './types/actake';
@@ -41,6 +42,7 @@ import {
   deriveEscrowPoolPda,
   fetchDevnetTelemetry,
   fetchLatestDevnetBlockhash,
+  resolveStakeDepositDestination,
   TOKEN_CONFIGS,
 } from './solana/actakeEscrow';
 import {
@@ -155,6 +157,8 @@ export default function App() {
   const [readinessDrawerOpen, setReadinessDrawerOpen] = useState(false);
   const [pollarModalMode, setPollarModalMode] = useState<'connect' | 'fund' | null>(null);
   const [claimingStakeId, setClaimingStakeId] = useState<string | null>(null);
+  const [slashingStakeId, setSlashingStakeId] = useState<string | null>(null);
+  const [treasuryConfig, setTreasuryConfig] = useState<TreasuryConfigSummary | null>(null);
   const awaitingPollarLoginRef = useRef(false);
 
   // Ringing alarm -> Challenge Pop-up -> Live Camera -> Celebration state machine
@@ -320,9 +324,23 @@ export default function App() {
     }
   }, []);
 
+  const refreshTreasuryConfig = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/treasury/summary');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data?.config) {
+        setTreasuryConfig(data.config as TreasuryConfigSummary);
+      }
+    } catch {
+      // non-blocking config sync
+    }
+  }, []);
+
   useEffect(() => {
     void refreshGlobalActivity();
-  }, [refreshGlobalActivity]);
+    void refreshTreasuryConfig();
+  }, [refreshGlobalActivity, refreshTreasuryConfig]);
 
   const navigateToSquadLobby = useCallback((poolId: string) => {
     setActiveLobbyPoolId(poolId);
@@ -636,14 +654,24 @@ export default function App() {
         deriveEscrowPoolPda(wallet.publicKey, params.category.id),
       ]);
 
+      const depositTarget = resolveStakeDepositDestination({
+        poolPda: escrowPda,
+        runtimeEscrowWallet: treasuryConfig?.escrowWallet,
+      });
+
       let signature = '';
       let broadcastedOnChain = false;
       let explorerUrl: string | undefined;
       let paidVia: 'pollar' | 'solana-tx' = 'solana-tx';
 
       if (wallet.connectionKind === 'pollar' && pollar.configured && pollar.isAuthenticated) {
+        if (!depositTarget.safeForRealTokens) {
+          throw new Error(
+            'Set ACTAKE_ESCROW_WALLET (public Solana address) in your environment variables before sending real Pollar stake deposits.'
+          );
+        }
         const paymentParams = buildPollarSolanaPaymentParams({
-          destination: escrowPda,
+          destination: depositTarget.destination,
           amount: params.amount,
           token: params.token,
         });
@@ -671,6 +699,8 @@ export default function App() {
           recentBlockhash,
           instructionType: 'join_pool',
           escrowPda,
+          escrowWallet: depositTarget.destination,
+          treasuryWallet: treasuryConfig?.treasuryWallet,
           token: params.token,
           amount: params.amount,
           metadata: {
@@ -701,6 +731,8 @@ export default function App() {
         alarmMinute: params.alarmMinute,
         alarmSound: userData.alarmSettings.selectedSound,
         escrowPda,
+        escrowWallet: depositTarget.destination,
+        treasuryWallet: treasuryConfig?.treasuryWallet || undefined,
         joinTxSignature: signature,
         paidVia,
         onchainConfirmed: broadcastedOnChain,
@@ -1055,6 +1087,92 @@ export default function App() {
     }
   };
 
+  // Settle a missed/forfeited personal commitment: 100% routed to Actake Fee Treasury
+  const handleSlashPersonalStake = async (stake: StakeCommitment) => {
+    if (!wallet || stake.status !== 'locked') return;
+    setSlashingStakeId(stake.id);
+    try {
+      const recentBlockhash = await fetchLatestDevnetBlockhash();
+      const tx = buildActakeEscrowTransaction({
+        payerPublicKey: wallet.publicKey,
+        recentBlockhash,
+        instructionType: 'slash_personal',
+        escrowPda: stake.escrowPda,
+        escrowWallet: stake.escrowWallet || treasuryConfig?.escrowWallet,
+        treasuryWallet: stake.treasuryWallet || treasuryConfig?.treasuryWallet,
+        token: stake.token,
+        amount: stake.amount,
+        metadata: {
+          routing: '100_percent_treasury',
+        },
+      });
+      const slashTx = await signActakeTransaction(tx, wallet);
+
+      const resp = await fetch(`/api/pools/${encodeURIComponent(stake.id)}/slash`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userPubkey: wallet.publicKey,
+          poolTitle: stake.categoryName,
+          stakeAmount: stake.amount,
+          tokenSymbol: stake.token,
+          txSignature: slashTx.signature,
+          onchainConfirmed: slashTx.broadcastedOnChain,
+        }),
+      });
+
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Failed to record personal stake slash.');
+      }
+
+      const historyEntry: HistoryEntry = {
+        id: `hist-slash-${Date.now()}`,
+        dateIso: new Date().toISOString(),
+        habitTitle: stake.categoryName,
+        verifiedItem: 'Missed Personal Stake → 100% Treasury',
+        token: stake.token,
+        principal: stake.amount,
+        bonus: 0,
+        totalPayout: 0,
+        txSignature: slashTx.signature,
+        onchainConfirmed: slashTx.broadcastedOnChain,
+        explorerUrl: slashTx.explorerUrl,
+        status: 'slashed',
+      };
+
+      updateUserData((prev) => ({
+        ...prev,
+        stakes: prev.stakes.map((s) =>
+          s.id === stake.id
+            ? { ...s, status: 'slashed', slashedTxSignature: slashTx.signature }
+            : s
+        ),
+        history: [historyEntry, ...prev.history],
+      }));
+
+      void refreshGlobalActivity();
+      void refreshTreasuryConfig();
+      if (slashTx.broadcastedOnChain) {
+        void syncDevnet(wallet.publicKey);
+      }
+
+      pushToast(
+        'info',
+        'Forfeited Stake Routed to Treasury',
+        `100% of $${stake.amount.toFixed(2)} ${stake.token} (${stake.categoryName}) credited to Actake Fee Treasury.`
+      );
+    } catch (err) {
+      pushToast(
+        'error',
+        'Slash Settlement Failed',
+        err instanceof Error ? err.message : 'Unable to settle missed stake.'
+      );
+    } finally {
+      setSlashingStakeId(null);
+    }
+  };
+
   // Geo-Hunt proof launch (triggers live camera verification with hunt target)
   const handleLaunchGeoProof = (hunt: GeoHuntZone) => {
     if (!wallet || !userData) return;
@@ -1266,6 +1384,9 @@ export default function App() {
                 onAdjustVaultBalance={handleAdjustVaultBalance}
                 onClaimVerifiedStake={handleClaimVerifiedStake}
                 claimingStakeId={claimingStakeId}
+                onSlashPersonalStake={handleSlashPersonalStake}
+                slashingStakeId={slashingStakeId}
+                treasuryConfig={treasuryConfig}
               />
             )}
 
@@ -1276,6 +1397,7 @@ export default function App() {
                 defaultAlarmSound={userData.alarmSettings.selectedSound}
                 submitting={submittingStake}
                 initialPreset={pendingExplorePreset}
+                treasuryConfig={treasuryConfig}
                 onClearPreset={handleClearPendingExplorePreset}
                 onAddCustomCategory={(cat) =>
                   updateUserData((prev) => ({

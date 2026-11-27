@@ -5,25 +5,37 @@ import {
   BedDouble,
   BookOpen,
   Calendar,
+  Check,
   Clock,
   Coffee,
+  Copy,
   Dumbbell,
+  ExternalLink,
+  Flame,
+  Footprints,
   Leaf,
   Plus,
   ShieldCheck,
   Sparkles,
   Wallet,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   AlarmSoundId,
   HabitCategory,
   TokenType,
+  TreasuryConfigSummary,
   WalletSession,
 } from '../types/actake';
-import { deriveEscrowPoolPda, TOKEN_CONFIGS } from '../solana/actakeEscrow';
+import {
+  buildDevnetExplorerAddressUrl,
+  deriveEscrowPoolPda,
+  resolveStakeDepositDestination,
+  TOKEN_CONFIGS,
+} from '../solana/actakeEscrow';
 import { useActakePollar } from '../context/ActakePollarProvider';
-import { formatClockTime12h } from '../utils/timeUtils';
+import { formatClockTime12h, formatTimeUntilNextDeadline } from '../utils/timeUtils';
 import { ExploreHabitPreset } from './SquadsView';
 import { MascotDisplay } from './MascotDisplay';
 import { ErrorStateCard } from './UiPrimitives';
@@ -34,6 +46,7 @@ interface MissionsViewProps {
   defaultAlarmSound: AlarmSoundId;
   submitting: boolean;
   initialPreset?: ExploreHabitPreset | null;
+  treasuryConfig?: TreasuryConfigSummary | null;
   onClearPreset?: () => void;
   onAddCustomCategory: (cat: HabitCategory) => void;
   onOpenPollarFund: () => void;
@@ -52,6 +65,66 @@ interface MissionsViewProps {
 
 const STAKE_AMOUNTS = [5, 10, 15, 25, 50];
 const FREQUENCIES = ['Daily', 'Weekdays', '5x / Week', 'Weekends'];
+
+interface QuickStakePreset {
+  id: string;
+  title: string;
+  badge: string;
+  description: string;
+  categoryId: string;
+  amount: number;
+  token: TokenType;
+  alarmHour: number;
+  alarmMinute: number;
+  frequencyLabel: string;
+  motivationNote: string;
+  icon: 'run' | 'work' | 'read';
+}
+
+const QUICK_STAKE_PRESETS: QuickStakePreset[] = [
+  {
+    id: 'quick-morning-run',
+    title: 'Morning Run',
+    badge: 'Trending · 1.2k staked',
+    description: 'Step outside and snap running shoes or daylight before breakfast.',
+    categoryId: 'outdoors_grass',
+    amount: 15,
+    token: 'USDC',
+    alarmHour: 6,
+    alarmMinute: 30,
+    frequencyLabel: 'Daily',
+    motivationNote: 'Morning Run — 20 minutes outside before checking messages.',
+    icon: 'run',
+  },
+  {
+    id: 'quick-deep-work',
+    title: 'Deep Work',
+    badge: '0% SKR Fee · 890 staked',
+    description: 'Verify your focused desk setup and lock into a 90-minute sprint.',
+    categoryId: 'reading_study',
+    amount: 25,
+    token: 'SKR',
+    alarmHour: 9,
+    alarmMinute: 0,
+    frequencyLabel: 'Weekdays',
+    motivationNote: 'Deep Work — 90-minute phone-free builder sprint at my desk.',
+    icon: 'work',
+  },
+  {
+    id: 'quick-read-20m',
+    title: 'Read 20m',
+    badge: 'Night Routine · 640 staked',
+    description: 'Open a physical book and finish 20 minutes before lights out.',
+    categoryId: 'reading_study',
+    amount: 10,
+    token: 'USDC',
+    alarmHour: 21,
+    alarmMinute: 0,
+    frequencyLabel: 'Daily',
+    motivationNote: 'Read 20m — 20 pages of a real book instead of scrolling.',
+    icon: 'read',
+  },
+];
 
 function CategoryIcon({ iconKey }: { iconKey: HabitCategory['iconKey'] }) {
   const cls = 'w-5 h-5';
@@ -78,6 +151,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
   categories,
   submitting,
   initialPreset,
+  treasuryConfig,
   onClearPreset,
   onAddCustomCategory,
   onOpenPollarFund,
@@ -102,11 +176,29 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
   );
 
   const [derivedPda, setDerivedPda] = useState<string>('');
+  const [copiedEscrow, setCopiedEscrow] = useState(false);
+  const [activeQuickPresetId, setActiveQuickPresetId] = useState<string | null>(null);
   const [customModalOpen, setCustomModalOpen] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customHint, setCustomHint] = useState('');
   const [customError, setCustomError] = useState<string | null>(null);
   const [stakeError, setStakeError] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  const applyQuickPreset = (preset: QuickStakePreset) => {
+    const matchedCat =
+      categories.find((c) => c.id === preset.categoryId) || categories[0];
+    setSelectedCategoryId(matchedCat.id);
+    setAmount(preset.amount);
+    setAmountError(null);
+    setToken(preset.token);
+    setAlarmHour(preset.alarmHour);
+    setAlarmMinute(preset.alarmMinute);
+    setFrequencyLabel(preset.frequencyLabel);
+    setMotivationNote(preset.motivationNote);
+    setActiveQuickPresetId(preset.id);
+    setStakeError(null);
+  };
 
   useEffect(() => {
     if (initialPreset) {
@@ -116,6 +208,7 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
       setAlarmHour(initialPreset.alarmHour);
       setAlarmMinute(initialPreset.alarmMinute);
       setMotivationNote(initialPreset.motivationNote);
+      setActiveQuickPresetId(null);
       onClearPreset?.();
     }
   }, [initialPreset, onClearPreset]);
@@ -133,13 +226,13 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
     };
   }, [wallet.publicKey, selectedCategory.id]);
 
-  const setOneMinuteFromNow = () => {
-    const next = new Date(Date.now() + 62_000);
-    setAlarmHour(next.getHours());
-    setAlarmMinute(next.getMinutes());
-  };
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const clockDisplay = formatClockTime12h(alarmHour, alarmMinute);
+  const nextDeadlineOffset = formatTimeUntilNextDeadline(alarmHour, alarmMinute, nowMs);
   const tokenCfg = TOKEN_CONFIGS[token];
 
   const handleAmountChange = (val: number) => {
@@ -255,6 +348,123 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
         </div>
       </div>
 
+      {/* Quick Stake Trending Presets Carousel */}
+      <section className="space-y-3" aria-label="Quick Stake trending presets">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="w-7 h-7 rounded-xl bg-[#FFF2EA] text-[#F16A2E] flex items-center justify-center shrink-0">
+              <Zap className="w-4 h-4" />
+            </span>
+            <div>
+              <h2 className="font-display text-base font-extrabold text-[#111114] leading-tight">
+                Quick Stake
+              </h2>
+              <p className="text-xs text-[#6B6663]">
+                Tap a trending preset to prefill your stake, token, and daily alarm
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-semibold text-[#F16A2E] inline-flex items-center gap-1">
+            <Flame className="w-3.5 h-3.5" />
+            <span>3 trending presets</span>
+          </span>
+        </div>
+
+        <div className="actake-no-scrollbar flex md:grid md:grid-cols-3 gap-3.5 overflow-x-auto md:overflow-visible snap-x snap-mandatory pb-1">
+          {QUICK_STAKE_PRESETS.map((preset) => {
+            const isApplied = activeQuickPresetId === preset.id;
+            const presetClock = formatClockTime12h(preset.alarmHour, preset.alarmMinute);
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => applyQuickPreset(preset)}
+                className={`snap-start shrink-0 w-[272px] sm:w-[292px] md:w-auto text-left rounded-[24px] p-4 sm:p-5 border transition-all flex flex-col justify-between gap-3.5 ${
+                  isApplied
+                    ? 'bg-[#141416] border-[#141416] text-white shadow-[0_12px_28px_rgba(17,17,20,0.18)]'
+                    : 'bg-white border-[#EFE2D9] text-[#111114] hover:border-[#F16A2E]/65 hover:bg-[#FFF9F5] shadow-[0_8px_22px_rgba(24,20,18,0.04)]'
+                }`}
+              >
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                        isApplied
+                          ? 'bg-[#F16A2E] text-white'
+                          : 'bg-[#FFF2EA] text-[#F16A2E]'
+                      }`}
+                    >
+                      {preset.icon === 'run' ? (
+                        <Footprints className="w-5 h-5" />
+                      ) : preset.icon === 'work' ? (
+                        <Zap className="w-5 h-5" />
+                      ) : (
+                        <BookOpen className="w-5 h-5" />
+                      )}
+                    </span>
+
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${
+                        isApplied
+                          ? 'bg-[#16A34A]/25 text-[#4ADE80]'
+                          : 'bg-[#FFF4EE] text-[#F16A2E]'
+                      }`}
+                    >
+                      {isApplied ? 'Preset Applied' : preset.badge}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="font-display text-base font-extrabold leading-snug">
+                      {preset.title}
+                    </div>
+                    <p
+                      className={`text-xs mt-1 leading-relaxed line-clamp-2 ${
+                        isApplied ? 'text-white/75' : 'text-[#6B6663]'
+                      }`}
+                    >
+                      {preset.description}
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  className={`pt-3 border-t flex items-center justify-between gap-2 text-xs tabular-nums ${
+                    isApplied ? 'border-white/15' : 'border-[#F4ECE7]'
+                  }`}
+                >
+                  <div className="font-mono font-bold">
+                    ${preset.amount} {preset.token}
+                    <span
+                      className={`font-sans font-medium ${
+                        isApplied ? 'text-white/65' : 'text-[#877F7A]'
+                      }`}
+                    >
+                      {' '}
+                      · {presetClock.full}
+                    </span>
+                  </div>
+                  <span
+                    className={`inline-flex items-center gap-1 font-bold text-[11px] ${
+                      isApplied ? 'text-[#4ADE80]' : 'text-[#F16A2E]'
+                    }`}
+                  >
+                    {isApplied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Loaded</span>
+                      </>
+                    ) : (
+                      <span>Use Preset</span>
+                    )}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Compact 4-Step Guided Summary Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {[
@@ -314,7 +524,10 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                   <button
                     key={cat.id}
                     type="button"
-                    onClick={() => setSelectedCategoryId(cat.id)}
+                    onClick={() => {
+                      setSelectedCategoryId(cat.id);
+                      setActiveQuickPresetId(null);
+                    }}
                     className={`text-left rounded-[24px] p-4 transition-all flex flex-col justify-between min-h-[124px] border ${
                       active
                         ? 'bg-[#111114] border-[#111114] text-white shadow-[0_12px_26px_rgba(17,17,20,0.18)]'
@@ -392,17 +605,16 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
           {/* Deadline Reminder Clock */}
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-display text-sm font-extrabold text-[#111114] inline-flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-[#F16A2E]" />
-                3. Deadline Reminder
+              <span className="font-display text-sm font-extrabold text-[#111114] inline-flex items-center gap-1.5 min-w-0">
+                <Clock className="w-4 h-4 text-[#F16A2E] shrink-0" />
+                <span className="truncate">3. Deadline Reminder</span>
               </span>
-              <button
-                type="button"
-                onClick={setOneMinuteFromNow}
-                className="min-h-[36px] px-2.5 rounded-full text-xs font-bold text-[#16A34A] hover:bg-[#ECFDF5] whitespace-nowrap transition-colors"
+              <span
+                title={`Next deadline in ${nextDeadlineOffset.replace(/^\+/, '')}`}
+                className="px-2.5 py-1 rounded-full bg-[#ECFDF5] border border-[#BBF7D0] text-xs font-mono font-bold text-[#15803D] whitespace-nowrap tabular-nums shrink-0"
               >
-                +1 min (Live Test)
-              </button>
+                {nextDeadlineOffset}
+              </span>
             </div>
 
             <div className="flex items-center gap-4 rounded-2xl bg-[#FFF8F4] border border-[#F4E6DD] p-4">
@@ -617,15 +829,88 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                   tokenCfg.protocolFeePct === 0 ? 'text-[#16A34A]' : 'text-[#111114]'
                 }`}
               >
-                {tokenCfg.protocolFeePct === 0 ? '0% (SKR Perk)' : `${tokenCfg.protocolFeePct}%`}
+                {tokenCfg.protocolFeePct === 0
+                  ? '0% (SKR Perk)'
+                  : `${tokenCfg.protocolFeePct}% → Fee Treasury`}
               </span>
             </div>
             <div className="flex justify-between gap-2">
-              <span className="text-[#6B6663]">Escrow PDA</span>
-              <span className="font-mono text-[#111114]">
-                {derivedPda ? `${derivedPda.slice(0, 8)}...${derivedPda.slice(-6)}` : 'Deriving...'}
+              <span className="text-[#6B6663]">Missed Personal Stake</span>
+              <span className="font-semibold text-[#111114]">
+                100% → Actake Treasury
+                {treasuryConfig?.treasuryWallet
+                  ? ` (${treasuryConfig.treasuryWallet.slice(0, 4)}...${treasuryConfig.treasuryWallet.slice(-4)})`
+                  : ''}
               </span>
             </div>
+            {(() => {
+              const target = resolveStakeDepositDestination({
+                poolPda: derivedPda || '',
+                runtimeEscrowWallet: treasuryConfig?.escrowWallet,
+              });
+              const displayAddr = target.destination || derivedPda;
+              return (
+                <>
+                  <div className="flex justify-between items-center gap-2 pt-1 border-t border-[#EFE2D9]">
+                    <span className="text-[#6B6663]">
+                      {target.mode === 'escrow-wallet'
+                        ? 'Escrow Vault Wallet'
+                        : target.mode === 'anchor-pda'
+                          ? 'Anchor Vault PDA'
+                          : 'Derived Escrow PDA'}
+                    </span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-mono text-[#111114] truncate">
+                        {displayAddr
+                          ? `${displayAddr.slice(0, 6)}...${displayAddr.slice(-4)}`
+                          : 'Deriving...'}
+                      </span>
+                      {displayAddr && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(displayAddr);
+                                setCopiedEscrow(true);
+                                window.setTimeout(() => setCopiedEscrow(false), 1600);
+                              } catch {
+                                // ignore clipboard restrictions
+                              }
+                            }}
+                            aria-label="Copy escrow destination address"
+                            className="p-1 rounded-md text-[#6B6663] hover:text-[#F16A2E]"
+                          >
+                            {copiedEscrow ? (
+                              <Check className="w-3.5 h-3.5 text-[#16A34A]" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <a
+                            href={buildDevnetExplorerAddressUrl(displayAddr)}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label="View escrow address on Solana Explorer"
+                            className="p-1 rounded-md text-[#F16A2E] hover:text-[#111114]"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {isPollarPaying && !target.safeForRealTokens && (
+                    <div className="mt-2 rounded-xl bg-[#FEF3C7] border border-[#FDE68A] px-3 py-2 text-[11px] text-[#92400E] leading-relaxed">
+                      <strong>Escrow Wallet Required for Pollar:</strong> Add{' '}
+                      <code className="font-mono">ACTAKE_ESCROW_WALLET</code> (public Solana
+                      address) in Vercel env vars so real Pollar tokens route to your vault instead
+                      of an unowned PDA.
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
           {stakeError && (

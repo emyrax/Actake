@@ -27,7 +27,10 @@ export interface StakeCommitment {
   alarmMinute: number; // 0-59
   alarmSound: AlarmSoundId;
   escrowPda: string;
+  escrowWallet?: string;
+  treasuryWallet?: string;
   joinTxSignature: string;
+  slashedTxSignature?: string;
   paidVia?: 'pollar' | 'solana-tx';
   onchainConfirmed?: boolean;
   explorerUrl?: string;
@@ -118,9 +121,29 @@ export interface SquadFeedItem {
   userFired?: boolean;
 }
 
+export interface SquadMemberStanding {
+  id: string;
+  memberName: string;
+  initials: string;
+  walletHint?: string;
+  status: 'verified' | 'active' | 'slashed';
+  checkinsCompleted: number;
+  totalDays: number;
+  streakDays: number;
+  stakedAmount: number;
+  lastProofLabel: string;
+  slashedAmount?: number;
+  likes?: number;
+  fires?: number;
+}
+
 export interface SquadPool {
   id: string;
   name: string;
+  description?: string;
+  categoryLabel?: string;
+  verificationRule?: string;
+  durationDays?: number;
   poolPubkey?: string;
   alarmTimeLabel: string;
   alarmHour?: number;
@@ -133,6 +156,7 @@ export interface SquadPool {
   slashedPot: number;
   blinkUrl: string;
   lobbyUrl?: string;
+  members?: SquadMemberStanding[];
   feed: SquadFeedItem[];
 }
 
@@ -261,4 +285,51 @@ export interface SystemReadinessReport {
     origin: string;
     actionsJsonUrl: string;
   };
+  treasury: TreasuryConfigSummary;
 }
+
+export type TreasuryEntryType = 'protocol_fee' | 'solo_slash' | 'zero_winner_slash';
+
+export interface TreasuryConfigSummary {
+  escrowWallet: string | null;
+  treasuryWallet: string | null;
+  escrowConfigured: boolean;
+  treasuryConfigured: boolean;
+  pollarSafeForRealDeposits: boolean;
+  usdcProtocolFeePct: number;
+  skrProtocolFeePct: number;
+  soloSlashRouting: '100_percent_treasury';
+}
+
+export interface TreasuryLedgerEntry {
+  id: string;
+  poolId: string;
+  poolTitle: string;
+  userPubkey: string;
+  entryType: TreasuryEntryType;
+  tokenSymbol: TokenType;
+  amount: number;
+  escrowWallet: string;
+  treasuryWallet: string;
+  status: 'accrued' | 'swept';
+  txSignature: string;
+  oracleSignature: string;
+  createdAt: string;
+}
+
+export interface TreasurySummaryReport {
+  storageMode: 'supabase' | 'memory';
+  config: TreasuryConfigSummary;
+  totals: {
+    activeEscrowUsdc: number;
+    activeEscrowSkr: number;
+    protocolFeesUsdc: number;
+    protocolFeesSkr: number;
+    soloSlashedUsdc: number;
+    soloSlashedSkr: number;
+    totalTreasuryUsdc: number;
+    totalTreasurySkr: number;
+  };
+  recentEntries: TreasuryLedgerEntry[];
+}
+

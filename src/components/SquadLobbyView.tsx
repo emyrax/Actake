@@ -1,18 +1,21 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
+  Award,
   Camera,
   Check,
   CheckCircle2,
-  Copy,
-  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Crown,
   Flame,
+  Info,
   Loader2,
   Share2,
   ShieldCheck,
   ThumbsUp,
   Trophy,
-  Users,
   Wallet,
   XCircle,
 } from 'lucide-react';
@@ -25,7 +28,6 @@ import {
 import {
   buildActakeEscrowTransaction,
   buildSquadBlinkUrl,
-  buildSquadLobbyUrl,
   fetchLatestDevnetBlockhash,
 } from '../solana/actakeEscrow';
 import { shortenAddress, signActakeTransaction } from '../solana/walletManager';
@@ -59,13 +61,6 @@ interface LobbyParticipant {
   isSlashed: boolean;
 }
 
-interface BlinkMetadata {
-  title: string;
-  description: string;
-  label: string;
-  icon: string;
-}
-
 interface SquadLobbyViewProps {
   poolId: string;
   wallet: WalletSession | null;
@@ -92,22 +87,42 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
   const [pool, setPool] = useState<LobbyPool | null>(null);
   const [participants, setParticipants] = useState<LobbyParticipant[]>([]);
   const [checkins, setCheckins] = useState<LiveCheckinRecord[]>([]);
-  const [blinkMeta, setBlinkMeta] = useState<BlinkMetadata | null>(null);
 
   const [joining, setJoining] = useState(false);
   const [joinNotice, setJoinNotice] = useState<string | null>(null);
-  const [copiedLink, setCopiedLink] = useState<'blink' | 'lobby' | null>(null);
-  const [testingBlinkTx, setTestingBlinkTx] = useState(false);
-  const [blinkTxPreview, setBlinkTxPreview] = useState<string | null>(null);
+  const [copiedShare, setCopiedShare] = useState(false);
+  const [aboutExpanded, setAboutExpanded] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'verified' | 'slashed'>('all');
+
+  useEffect(() => {
+    setAboutExpanded(false);
+  }, [poolId]);
+
+  const rankedParticipants = useMemo(() => {
+    return [...participants].sort((a, b) => {
+      if (a.isSlashed !== b.isSlashed) return a.isSlashed ? 1 : -1;
+      if (b.checkinsCompleted !== a.checkinsCompleted) {
+        return b.checkinsCompleted - a.checkinsCompleted;
+      }
+      if (b.streakDays !== a.streakDays) return b.streakDays - a.streakDays;
+      return b.stakedAmount - a.stakedAmount;
+    });
+  }, [participants]);
+
+  const activeLeaderboardCount = rankedParticipants.filter((p) => !p.isSlashed).length;
+  const slashedLeaderboardCount = rankedParticipants.filter((p) => p.isSlashed).length;
+
+  const filteredParticipants = useMemo(() => {
+    if (statusFilter === 'verified') return rankedParticipants.filter((p) => !p.isSlashed);
+    if (statusFilter === 'slashed') return rankedParticipants.filter((p) => p.isSlashed);
+    return rankedParticipants;
+  }, [rankedParticipants, statusFilter]);
 
   const loadLobby = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [lobbyResp, blinkResp] = await Promise.all([
-        fetch(`/api/pools/${encodeURIComponent(poolId)}`),
-        fetch(`/api/actions/join/${encodeURIComponent(poolId)}`),
-      ]);
+      const lobbyResp = await fetch(`/api/pools/${encodeURIComponent(poolId)}`);
       if (!lobbyResp.ok) {
         throw new Error('This squad pool could not be found.');
       }
@@ -115,9 +130,6 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
       setPool(data.pool);
       setParticipants(data.participants || []);
       setCheckins(data.checkins || []);
-      if (blinkResp.ok) {
-        setBlinkMeta(await blinkResp.json());
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load squad lobby.');
     } finally {
@@ -179,47 +191,32 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
     }
   };
 
-  const handleTestBlinkActionPost = async () => {
+  const handleSharePool = async () => {
     if (!pool) return;
-    setTestingBlinkTx(true);
-    setBlinkTxPreview(null);
+    const alarmLabel = formatAlarm12h(pool.alarmHour, pool.alarmMinute);
+    const shareUrl = buildSquadBlinkUrl({
+      poolId: pool.id,
+      squadName: pool.title,
+      amount: pool.stakeAmount,
+      token: pool.tokenSymbol,
+      alarmTime: alarmLabel,
+    });
     try {
-      const account = wallet?.publicKey || '11111111111111111111111111111111';
-      const resp = await fetch(`/api/actions/join/${encodeURIComponent(pool.id)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.message || 'Blink action test failed.');
-      setBlinkTxPreview(
-        `${data.message} · Base64 Tx (${String(data.transaction).length} chars): ${String(
-          data.transaction
-        ).slice(0, 48)}...`
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to preview Solana Blink transaction.');
-    } finally {
-      setTestingBlinkTx(false);
+      if (navigator.share) {
+        await navigator.share({
+          title: `Join ${pool.title} on Actake`,
+          text: `Stake $${pool.stakeAmount} ${pool.tokenSymbol} for ${alarmLabel} daily proof:`,
+          url: shareUrl,
+        });
+        return;
+      }
+    } catch {
+      // fallback to clipboard
     }
-  };
-
-  const handleCopy = async (kind: 'blink' | 'lobby') => {
-    if (!pool) return;
-    const text =
-      kind === 'blink'
-        ? buildSquadBlinkUrl({
-            poolId: pool.id,
-            squadName: pool.title,
-            amount: pool.stakeAmount,
-            token: pool.tokenSymbol,
-            alarmTime: formatAlarm12h(pool.alarmHour, pool.alarmMinute),
-          })
-        : buildSquadLobbyUrl(pool.id);
     try {
-      await navigator.clipboard.writeText(text);
-      setCopiedLink(kind);
-      window.setTimeout(() => setCopiedLink(null), 2000);
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedShare(true);
+      window.setTimeout(() => setCopiedShare(false), 2000);
     } catch {
       // ignore clipboard errors
     }
@@ -310,7 +307,7 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
 
   return (
     <div className="space-y-6 pb-10">
-      {/* Top Breadcrumb Navigation */}
+      {/* Top Navigation Row with Icon-Only Share Button */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
@@ -321,7 +318,19 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
           <span>Back to Explore</span>
         </button>
 
-        <div className="text-xs font-mono text-[#6B6663] truncate">/squad/{pool.id}</div>
+        <button
+          type="button"
+          onClick={() => void handleSharePool()}
+          aria-label={copiedShare ? 'Pool link copied' : 'Share pool'}
+          title={copiedShare ? 'Link copied' : 'Share pool'}
+          className="w-11 h-11 rounded-full bg-white border border-[#EFE2D9] hover:border-[#F16A2E]/60 hover:bg-[#FFF9F5] text-[#111114] inline-flex items-center justify-center transition-colors shadow-[0_4px_14px_rgba(24,20,18,0.04)] shrink-0"
+        >
+          {copiedShare ? (
+            <Check className="w-4 h-4 text-[#16A34A]" />
+          ) : (
+            <Share2 className="w-4 h-4 text-[#111114]" />
+          )}
+        </button>
       </div>
 
       {/* Obsidian Squad Hero Banner */}
@@ -412,23 +421,122 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
         />
       )}
 
-      {/* Main 2-Column Split: Leaderboard + Solana Blink Card | Verified Check-In Proof Stream */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Leaderboard & Live Solana Blink Card */}
-        <div className="lg:col-span-5 space-y-6">
-          {/* Leaderboard */}
-          <div className="actake-card p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-lg font-extrabold text-[#111114] flex items-center gap-2">
-                <Trophy className="w-4 h-4 text-[#F16A2E]" />
-                <span>Squad Leaderboard</span>
-              </h2>
-              <span className="text-xs text-[#6B6663] tabular-nums">
-                {participants.length} tracked
+      {/* 1st Component: Collapsible "What This Pool Is About" (collapsed by default) */}
+      <section className="actake-card overflow-hidden">
+        <button
+          type="button"
+          aria-expanded={aboutExpanded}
+          onClick={() => setAboutExpanded((prev) => !prev)}
+          className="w-full px-5 sm:px-6 py-4 flex items-center justify-between gap-3 text-left hover:bg-[#FFF9F5] transition-colors"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-9 h-9 rounded-2xl bg-[#FFF2EA] text-[#F16A2E] flex items-center justify-center shrink-0">
+              <Info className="w-4 h-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="font-display text-sm sm:text-base font-extrabold text-[#111114]">
+                What This Pool Is About
+              </div>
+              <p className="text-xs text-[#6B6663] truncate">
+                {aboutExpanded
+                  ? 'Daily cutoff, live verification & payout rules'
+                  : 'Tap to read pool rules, daily cutoff & slashing split'}
+              </p>
+            </div>
+          </div>
+
+          <span className="min-h-[36px] px-3 py-1.5 rounded-full bg-[#FFF4EE] text-[#F16A2E] text-xs font-bold inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
+            <span>{aboutExpanded ? 'Collapse' : 'Read more'}</span>
+            {aboutExpanded ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+          </span>
+        </button>
+
+        {aboutExpanded && (
+          <div className="px-5 sm:px-6 pb-6 pt-3 border-t border-[#F4ECE7] grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2 space-y-2">
+              <p className="text-xs sm:text-sm text-[#4F4A47] leading-relaxed">
+                <strong>{pool.title}</strong> is a {pool.totalDays}-day daily accountability pool on
+                Solana Devnet. Every participant locks{' '}
+                <strong>
+                  ${pool.stakeAmount} {pool.tokenSymbol}
+                </strong>{' '}
+                and must submit a live AI-verified camera proof before{' '}
+                <strong>{deadlineLabel}</strong> each day. Members who stay verified reclaim 100% of
+                their stake plus a pro-rata share of the{' '}
+                <strong>
+                  ${pool.slashedPotAvailable} {pool.tokenSymbol}
+                </strong>{' '}
+                slashed bonus pot from anyone who misses.
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-4 space-y-2 text-xs">
+              <div className="font-bold text-[#111114] inline-flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-[#F16A2E]" />
+                <span>Verification Requirements</span>
+              </div>
+              <p className="text-[#6B6663] leading-relaxed">
+                Live proof environment:{' '}
+                {pool.environmentHint || 'Daily randomized household or gym proof'}.
+              </p>
+              <div className="text-[11px] font-semibold text-[#16A34A] pt-1">
+                {pool.tokenSymbol === 'SKR'
+                  ? '0% SKR protocol fee · Full slashed split to verified leaders'
+                  : '1.5% USDC protocol fee · Slashed stakes split pro-rata among winners'}
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* 2nd Component: Status-Ranked Pool Leaderboard (immediately after What This Pool Is About) */}
+      <div className="space-y-6">
+        <div className="actake-card p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="font-display text-lg font-extrabold text-[#111114] flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-[#F16A2E]" />
+                  <span>Pool Leaderboard</span>
+                </h2>
+                <p className="text-[11px] text-[#6B6663] mt-0.5">
+                  Ranked by status (Verified Leaders → Slashed) &amp; streak
+                </p>
+              </div>
+              <span className="text-xs font-semibold text-[#6B6663] tabular-nums">
+                {rankedParticipants.length} ranked
               </span>
             </div>
 
-            {participants.length === 0 ? (
+            {rankedParticipants.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(
+                  [
+                    { id: 'all', label: `All (${rankedParticipants.length})` },
+                    { id: 'verified', label: `Verified (${activeLeaderboardCount})` },
+                    { id: 'slashed', label: `Slashed (${slashedLeaderboardCount})` },
+                  ] as const
+                ).map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setStatusFilter(f.id)}
+                    className={`min-h-[32px] px-3 py-1 rounded-full text-[11px] font-bold transition-colors border ${
+                      statusFilter === f.id
+                        ? 'bg-[#111114] border-[#111114] text-white'
+                        : 'bg-white border-[#EFE2D9] text-[#6B6663] hover:text-[#111114]'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {rankedParticipants.length === 0 ? (
               <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-4 text-center space-y-2.5">
                 <p className="text-xs text-[#6B6663]">
                   No participants yet. Match the stake above to lead this squad.
@@ -441,124 +549,129 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
                   Be First to Join
                 </button>
               </div>
-            ) : (
-              <div className="divide-y divide-[#F6EFEA]">
-                {participants.map((p, idx) => (
-                  <div
-                    key={p.id}
-                    className="py-3 flex items-center justify-between gap-3 text-sm"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="font-mono text-xs font-bold text-[#877F7A] w-5 tabular-nums">
-                        #{idx + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="font-bold text-[#111114] truncate">{p.displayName}</div>
-                        <div className="text-xs text-[#6B6663] font-mono">
-                          {shortenAddress(p.userPubkey, 4)}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0 tabular-nums">
-                      <div className="text-xs font-bold text-[#111114]">
-                        {p.checkinsCompleted}/{pool.totalDays} days
-                      </div>
-                      <div
-                        className={`text-[11px] font-semibold ${
-                          p.isSlashed ? 'text-[#DC2626]' : 'text-[#16A34A]'
-                        }`}
-                      >
-                        {p.isSlashed ? 'Slashed' : `${p.streakDays}d streak`}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Live Solana Blink Card (@solana/actions) */}
-          <div className="actake-card p-6 space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="font-display text-lg font-extrabold text-[#111114] flex items-center gap-2">
-                <Share2 className="w-4 h-4 text-[#F16A2E]" />
-                <span>Solana Blink Action</span>
-              </h2>
-              <span className="text-[11px] font-mono text-[#6B6663] truncate">
-                /api/actions/join/{pool.id}
-              </span>
-            </div>
-
-            {blinkMeta && (
-              <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-4 space-y-3">
-                <div className="flex items-center gap-3.5">
-                  <MascotDisplay
-                    variant="medallion"
-                    size="md"
-                    alt="Actake Blink Card Mascot"
-                  />
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold text-[#111114] truncate">
-                      {blinkMeta.title}
-                    </div>
-                    <div className="text-xs text-[#6B6663] line-clamp-2 mt-0.5">
-                      {blinkMeta.description}
-                    </div>
-                  </div>
-                </div>
+            ) : filteredParticipants.length === 0 ? (
+              <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-4 text-center space-y-2">
+                <p className="text-xs text-[#6B6663]">No members in this status filter yet.</p>
                 <button
                   type="button"
-                  disabled={testingBlinkTx}
-                  onClick={() => void handleTestBlinkActionPost()}
-                  className="w-full min-h-[44px] rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                  onClick={() => setStatusFilter('all')}
+                  className="text-xs font-bold text-[#F16A2E] hover:underline"
                 >
-                  {testingBlinkTx ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <ExternalLink className="w-3.5 h-3.5 text-[#F16A2E]" />
-                  )}
-                  <span>{blinkMeta.label} (Preview Blink Tx)</span>
+                  Show all ranked members
                 </button>
               </div>
-            )}
+            ) : (
+              <div className="divide-y divide-[#F6EFEA]">
+                {filteredParticipants.map((p) => {
+                  const globalRank = rankedParticipants.findIndex((item) => item.id === p.id) + 1;
+                  const pct = Math.min(
+                    100,
+                    Math.round((p.checkinsCompleted / Math.max(1, pool.totalDays)) * 100)
+                  );
+                  const estSplit =
+                    !p.isSlashed && activeLeaderboardCount > 0
+                      ? pool.slashedPotAvailable / activeLeaderboardCount
+                      : 0;
 
-            {blinkTxPreview && (
-              <div className="rounded-2xl bg-[#ECFDF5] border border-[#BBF7D0] p-3 text-[11px] font-mono text-[#166534] break-all">
-                {blinkTxPreview}
+                  return (
+                    <div
+                      key={p.id}
+                      className={`py-3.5 px-2.5 -mx-2.5 rounded-2xl flex items-center justify-between gap-3 text-sm ${
+                        p.isSlashed
+                          ? 'bg-[#FEF2F2]/55'
+                          : globalRank === 1
+                            ? 'bg-[#FFFBEB]/70'
+                            : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <span
+                          className={`w-8 h-8 rounded-xl flex items-center justify-center font-mono text-xs font-extrabold shrink-0 tabular-nums ${
+                            p.isSlashed
+                              ? 'bg-[#FEE2E2] text-[#DC2626]'
+                              : globalRank === 1
+                                ? 'bg-[#FEF3C7] text-[#B45309] border border-[#FDE68A]'
+                                : globalRank === 2
+                                  ? 'bg-[#F3F4F6] text-[#374151] border border-[#E5E7EB]'
+                                  : globalRank === 3
+                                    ? 'bg-[#FFEDD5] text-[#C2410C] border border-[#FED7AA]'
+                                    : 'bg-[#FFF8F4] text-[#6B6663]'
+                          }`}
+                        >
+                          {!p.isSlashed && globalRank === 1 ? (
+                            <Crown className="w-3.5 h-3.5" />
+                          ) : !p.isSlashed && globalRank <= 3 ? (
+                            <Award className="w-3.5 h-3.5" />
+                          ) : (
+                            `#${globalRank}`
+                          )}
+                        </span>
+
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-bold text-[#111114] truncate">
+                              {p.displayName}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                p.isSlashed
+                                  ? 'bg-[#FEE2E2] text-[#DC2626]'
+                                  : 'bg-[#ECFDF5] text-[#15803D]'
+                              }`}
+                            >
+                              {p.isSlashed ? 'Slashed' : 'Verified'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[#6B6663] font-mono">
+                            {shortenAddress(p.userPubkey, 4)}
+                          </div>
+                          <div className="flex items-center gap-2 max-w-[160px]">
+                            <div className="h-1.5 flex-1 rounded-full bg-[#F3E7DF] overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  p.isSlashed ? 'bg-[#EF4444]' : 'bg-[#16A34A]'
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] font-mono font-bold text-[#6B6663] tabular-nums">
+                              {p.checkinsCompleted}/{pool.totalDays}d
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0 tabular-nums">
+                        {p.isSlashed ? (
+                          <>
+                            <div className="text-xs font-extrabold text-[#DC2626]">
+                              -${p.stakedAmount.toFixed(0)} {pool.tokenSymbol}
+                            </div>
+                            <div className="text-[11px] font-semibold text-[#991B1B]">
+                              Forfeited
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-xs font-extrabold text-[#16A34A]">
+                              +${estSplit.toFixed(2)} est.
+                            </div>
+                            <div className="text-[11px] font-semibold text-[#F16A2E] inline-flex items-center justify-end gap-0.5">
+                              <Flame className="w-3 h-3" />
+                              <span>{p.streakDays}d streak</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={() => void handleCopy('blink')}
-                className="min-h-[44px] rounded-full bg-[#FFF4EE] border border-[#F2E3DA] hover:bg-[#FFE5D6] text-xs font-bold text-[#111114] inline-flex items-center justify-center gap-1.5 transition-colors"
-              >
-                {copiedLink === 'blink' ? (
-                  <Check className="w-3.5 h-3.5 text-[#16A34A]" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5 text-[#F16A2E]" />
-                )}
-                <span>{copiedLink === 'blink' ? 'Blink Copied' : 'Copy Blink URL'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCopy('lobby')}
-                className="min-h-[44px] rounded-full bg-[#FFF4EE] border border-[#F2E3DA] hover:bg-[#FFE5D6] text-xs font-bold text-[#111114] inline-flex items-center justify-center gap-1.5 transition-colors"
-              >
-                {copiedLink === 'lobby' ? (
-                  <Check className="w-3.5 h-3.5 text-[#16A34A]" />
-                ) : (
-                  <Users className="w-3.5 h-3.5 text-[#F16A2E]" />
-                )}
-                <span>{copiedLink === 'lobby' ? 'Lobby Copied' : 'Copy Lobby Link'}</span>
-              </button>
-            </div>
-          </div>
         </div>
 
-        {/* Right Column: Verified Check-In Proof Feed */}
-        <div className="lg:col-span-7 actake-card overflow-hidden">
+        {/* 3rd Component: Verified Check-In Proof Feed */}
+        <div className="actake-card overflow-hidden">
           <div className="px-6 py-4 border-b border-[#F4ECE7] flex items-center justify-between gap-2">
             <div>
               <h2 className="font-display text-lg font-extrabold text-[#111114]">

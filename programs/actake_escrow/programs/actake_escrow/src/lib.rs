@@ -20,11 +20,16 @@ pub mod actake_escrow {
 
     /// Initializes a new Actake accountability commitment pool and its PDA token vault.
     /// Supports both standard SPL Token (USDC) and Token-2022 (0%-fee SKR).
+    /// `pool_type`: 0 = Personal (Solo), 1 = Squad Pool, 2 = GPS Geo-Hunt.
+    /// `treasury`: Public key of the Actake Fee Treasury wallet receiving protocol fees
+    ///             and 100% of forfeited stakes from missed personal commitments.
     pub fn create_pool(
         ctx: Context<CreatePool>,
         pool_id: [u8; 16],
+        pool_type: u8,
         stake_amount: u64,
         oracle_pubkey: [u8; 32],
+        treasury: Pubkey,
         total_days: u16,
         deadline_unix_ts: i64,
         protocol_fee_bps: u16,
@@ -32,12 +37,16 @@ pub mod actake_escrow {
         require!(stake_amount > 0, ActakeError::InvalidStakeAmount);
         require!(total_days > 0 && total_days <= 64, ActakeError::InvalidDuration);
         require!(protocol_fee_bps <= 500, ActakeError::FeeTooHigh);
+        require!(pool_type <= 2, ActakeError::InvalidPoolType);
+        require!(treasury != Pubkey::default(), ActakeError::InvalidTreasury);
 
         let pool = &mut ctx.accounts.pool;
         pool.pool_id = pool_id;
+        pool.pool_type = pool_type;
         pool.creator = ctx.accounts.creator.key();
         pool.mint = ctx.accounts.mint.key();
         pool.vault = ctx.accounts.vault.key();
+        pool.treasury = treasury;
         pool.oracle_pubkey = oracle_pubkey;
         pool.stake_amount = stake_amount;
         pool.total_days = total_days;
@@ -48,6 +57,7 @@ pub mod actake_escrow {
         pool.verified_participant_count = 0;
         pool.slashed_pot = 0;
         pool.settled = false;
+        pool.treasury_swept = false;
         pool.bump = ctx.bumps.pool;
         pool.vault_bump = ctx.bumps.vault;
 
@@ -55,6 +65,8 @@ pub mod actake_escrow {
             pool: pool.key(),
             creator: pool.creator,
             mint: pool.mint,
+            treasury: pool.treasury,
+            pool_type,
             stake_amount,
             oracle_pubkey,
             protocol_fee_bps,
@@ -179,6 +191,7 @@ pub mod actake_escrow {
     /// Settles a participant's escrow after check-in verification / deadline expiry.
     /// Verified participants receive their full principal plus a proportional share
     /// of the pool's slashed pot from non-verified participants (minus protocol fee bps).
+    /// Any protocol fee is transferred directly to the pool's constrained `treasury_token_account`.
     pub fn settle_and_claim(ctx: Context<SettleAndClaim>) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
         let participant = &mut ctx.accounts.participant;
@@ -216,6 +229,7 @@ pub mod actake_escrow {
         let pool_id_ref = pool.pool_id;
         let signer_seeds: &[&[&[u8]]] = &[&[b"pool", pool_id_ref.as_ref(), &[pool.bump]]];
 
+        // 1. Transfer principal + net bonus to the verified participant
         let cpi_accounts = TransferChecked {
             from: ctx.accounts.vault.to_account_info(),
             mint: ctx.accounts.mint.to_account_info(),
@@ -229,6 +243,28 @@ pub mod actake_escrow {
         );
         token_interface::transfer_checked(cpi_ctx, transfer_amount, ctx.accounts.mint.decimals)?;
 
+        // 2. Transfer protocol fee directly to the Actake Fee Treasury token account (when fee > 0)
+        let remaining_after_user = vault_balance.saturating_sub(transfer_amount);
+        let fee_transfer = fee_amount.min(remaining_after_user);
+        if fee_transfer > 0 {
+            let fee_cpi_accounts = TransferChecked {
+                from: ctx.accounts.vault.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+                to: ctx.accounts.treasury_token_account.to_account_info(),
+                authority: pool.to_account_info(),
+            };
+            let fee_cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                fee_cpi_accounts,
+                signer_seeds,
+            );
+            token_interface::transfer_checked(
+                fee_cpi_ctx,
+                fee_transfer,
+                ctx.accounts.mint.decimals,
+            )?;
+        }
+
         participant.has_claimed = true;
 
         emit!(PayoutClaimed {
@@ -236,7 +272,57 @@ pub mod actake_escrow {
             user: participant.user,
             principal: participant.staked_amount,
             bonus: net_bonus,
+            protocol_fee: fee_transfer,
             total_transferred: transfer_amount,
+        });
+
+        Ok(())
+    }
+
+    /// Sweeps 100% of forfeited stakes from expired personal (solo) commitments or
+    /// zero-winner pools directly from the Escrow Vault PDA to the Actake Fee Treasury.
+    pub fn sweep_to_treasury(ctx: Context<SweepToTreasury>) -> Result<()> {
+        let pool = &mut ctx.accounts.pool;
+        require!(!pool.treasury_swept, ActakeError::TreasuryAlreadySwept);
+
+        let clock = Clock::get()?;
+        require!(
+            clock.unix_timestamp >= pool.deadline_unix_ts,
+            ActakeError::DeadlineNotReached
+        );
+        require!(
+            pool.verified_participant_count == 0,
+            ActakeError::PoolHasVerifiedWinners
+        );
+
+        let sweep_amount = ctx.accounts.vault.amount;
+        require!(sweep_amount > 0, ActakeError::EmptyVault);
+
+        let pool_id_ref = pool.pool_id;
+        let signer_seeds: &[&[&[u8]]] = &[&[b"pool", pool_id_ref.as_ref(), &[pool.bump]]];
+
+        let cpi_accounts = TransferChecked {
+            from: ctx.accounts.vault.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            to: ctx.accounts.treasury_token_account.to_account_info(),
+            authority: pool.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_accounts,
+            signer_seeds,
+        );
+        token_interface::transfer_checked(cpi_ctx, sweep_amount, ctx.accounts.mint.decimals)?;
+
+        pool.slashed_pot = sweep_amount;
+        pool.settled = true;
+        pool.treasury_swept = true;
+
+        emit!(TreasurySwept {
+            pool: pool.key(),
+            treasury: pool.treasury,
+            pool_type: pool.pool_type,
+            amount: sweep_amount,
         });
 
         Ok(())
@@ -418,6 +504,14 @@ pub struct SettleAndClaim<'info> {
 
     #[account(
         mut,
+        token::mint = mint,
+        token::authority = pool.treasury,
+        token::token_program = token_program
+    )]
+    pub treasury_token_account: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mut,
         seeds = [b"participant", pool.key().as_ref(), user.key().as_ref()],
         bump = participant.bump,
         has_one = pool,
@@ -428,13 +522,46 @@ pub struct SettleAndClaim<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
+#[derive(Accounts)]
+pub struct SweepToTreasury<'info> {
+    pub caller: Signer<'info>,
+
+    #[account(mut)]
+    pub pool: Account<'info, Pool>,
+
+    #[account(address = pool.mint)]
+    pub mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
+        seeds = [b"vault", pool.key().as_ref()],
+        bump = pool.vault_bump,
+        token::mint = mint,
+        token::authority = pool,
+        token::token_program = token_program
+    )]
+    pub vault: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        token::mint = mint,
+        token::authority = pool.treasury,
+        token::token_program = token_program
+    )]
+    pub treasury_token_account: InterfaceAccount<'info, TokenAccount>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Pool {
     pub pool_id: [u8; 16],
+    pub pool_type: u8,
     pub creator: Pubkey,
     pub mint: Pubkey,
     pub vault: Pubkey,
+    pub treasury: Pubkey,
     pub oracle_pubkey: [u8; 32],
     pub stake_amount: u64,
     pub total_days: u16,
@@ -445,6 +572,7 @@ pub struct Pool {
     pub verified_participant_count: u32,
     pub slashed_pot: u64,
     pub settled: bool,
+    pub treasury_swept: bool,
     pub bump: u8,
     pub vault_bump: u8,
 }
@@ -467,6 +595,8 @@ pub struct PoolCreated {
     pub pool: Pubkey,
     pub creator: Pubkey,
     pub mint: Pubkey,
+    pub treasury: Pubkey,
+    pub pool_type: u8,
     pub stake_amount: u64,
     pub oracle_pubkey: [u8; 32],
     pub protocol_fee_bps: u16,
@@ -493,7 +623,16 @@ pub struct PayoutClaimed {
     pub user: Pubkey,
     pub principal: u64,
     pub bonus: u64,
+    pub protocol_fee: u64,
     pub total_transferred: u64,
+}
+
+#[event]
+pub struct TreasurySwept {
+    pub pool: Pubkey,
+    pub treasury: Pubkey,
+    pub pool_type: u8,
+    pub amount: u64,
 }
 
 #[error_code]
@@ -504,6 +643,10 @@ pub enum ActakeError {
     InvalidDuration,
     #[msg("Protocol fee cannot exceed 5% (500 bps).")]
     FeeTooHigh,
+    #[msg("Pool type must be 0 (Solo), 1 (Squad), or 2 (Geo-Hunt).")]
+    InvalidPoolType,
+    #[msg("Treasury public key must be a valid non-default Solana address.")]
+    InvalidTreasury,
     #[msg("This commitment pool is already settled.")]
     PoolAlreadySettled,
     #[msg("Day index out of bounds for this pool.")]
@@ -526,6 +669,12 @@ pub enum ActakeError {
     NotVerifiedForPayout,
     #[msg("Pool vault has insufficient tokens for payout.")]
     EmptyVault,
+    #[msg("Pool deadline has not yet expired.")]
+    DeadlineNotReached,
+    #[msg("Cannot sweep full vault to treasury when verified winners exist.")]
+    PoolHasVerifiedWinners,
+    #[msg("Forfeited vault funds have already been swept to treasury.")]
+    TreasuryAlreadySwept,
     #[msg("Arithmetic overflow occurred.")]
     MathOverflow,
 }

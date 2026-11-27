@@ -14,10 +14,12 @@ import {
   getLiveGlobalActivity,
   getPoolById,
   getSquadFeedAndLeaderboard,
+  getTreasurySummary,
   isSupabaseActive,
   joinPoolRecord,
   listPools,
   reactToCheckin,
+  recordPersonalSlash,
   recordPoolSettlement,
   recordVerifiedCheckin,
 } from './src/server/supabaseStore.ts';
@@ -953,6 +955,48 @@ function resolveBaseOrigin(req: express.Request): string {
   return `${forwardedProto}://${forwardedHost}`.replace(/\/$/, '');
 }
 
+function parseValidSolanaAddress(raw: string | undefined): string | null {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return null;
+  try {
+    return new PublicKey(trimmed).toBase58();
+  } catch {
+    return null;
+  }
+}
+
+function resolveTreasuryConfig() {
+  const customProgramId = process.env.VITE_ACTAKE_ESCROW_PROGRAM_ID?.trim() || '';
+  const defaultProgramId = 'ACTKescrow111111111111111111111111111111111';
+  let customAnchorDeployed = false;
+  if (customProgramId && customProgramId !== defaultProgramId) {
+    try {
+      new PublicKey(customProgramId);
+      customAnchorDeployed = true;
+    } catch {
+      customAnchorDeployed = false;
+    }
+  }
+
+  const escrowWallet =
+    parseValidSolanaAddress(process.env.ACTAKE_ESCROW_WALLET) ||
+    parseValidSolanaAddress(process.env.VITE_ACTAKE_ESCROW_WALLET);
+  const treasuryWallet =
+    parseValidSolanaAddress(process.env.ACTAKE_TREASURY_WALLET) ||
+    parseValidSolanaAddress(process.env.VITE_ACTAKE_TREASURY_WALLET);
+
+  return {
+    escrowWallet,
+    treasuryWallet,
+    escrowConfigured: Boolean(escrowWallet),
+    treasuryConfigured: Boolean(treasuryWallet),
+    pollarSafeForRealDeposits: customAnchorDeployed || Boolean(escrowWallet),
+    usdcProtocolFeePct: 1.5,
+    skrProtocolFeePct: 0,
+    soloSlashRouting: '100_percent_treasury' as const,
+  };
+}
+
 export function createApiApp(): express.Express {
   const app = express();
   app.set('trust proxy', 1);
@@ -1579,9 +1623,24 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
           origin: configuredOrigin,
           actionsJsonUrl: `${configuredOrigin.replace(/\/$/, '')}/actions.json`,
         },
+        treasury: resolveTreasuryConfig(),
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to inspect system readiness.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================================================
+  // DUAL-WALLET ESCROW VAULT & FEE TREASURY SUMMARY (Read-only public addresses)
+  // ============================================================================
+  app.get('/api/treasury/summary', async (_req, res) => {
+    try {
+      const config = resolveTreasuryConfig();
+      const summary = await getTreasurySummary(config);
+      res.json(summary);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load treasury summary.';
       res.status(500).json({ error: message });
     }
   });
@@ -1746,6 +1805,7 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
         .sign(null, settlementPayload, oracleKeys.privateKey)
         .toString('hex');
 
+      const treasuryConfig = resolveTreasuryConfig();
       let recordedSettlement = null;
       if (typeof txSignature === 'string' && txSignature.trim().length > 0) {
         recordedSettlement = await recordPoolSettlement({
@@ -1759,17 +1819,91 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
           txSignature: txSignature.trim(),
           onchainConfirmed: Boolean(onchainConfirmed),
           oracleSignature,
+          escrowWallet: treasuryConfig.escrowWallet,
+          treasuryWallet: treasuryConfig.treasuryWallet,
         });
       }
 
       res.json({
         quote,
+        treasury: treasuryConfig,
         oraclePublicKeyHex: oracleKeys.publicKeyHex,
         oracleSignature,
         settlement: recordedSettlement,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Pool settlement calculation failed.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================================================
+  // PERSONAL (SOLO) COMMITMENT SLASH -> 100% ROUTED TO ACTAKE FEE TREASURY
+  // ============================================================================
+  app.post('/api/pools/:poolId/slash', async (req, res) => {
+    try {
+      const poolId = String(req.params.poolId || '').trim();
+      const {
+        userPubkey,
+        poolTitle,
+        stakeAmount,
+        tokenSymbol,
+        txSignature = '',
+        onchainConfirmed = false,
+      } = req.body ?? {};
+
+      if (!poolId || typeof userPubkey !== 'string' || !userPubkey.trim()) {
+        res.status(400).json({ error: 'Missing required poolId or userPubkey.' });
+        return;
+      }
+
+      const validUserPubkey = parseValidSolanaAddress(userPubkey);
+      if (!validUserPubkey) {
+        res.status(400).json({ error: 'Invalid Solana wallet public key.' });
+        return;
+      }
+
+      const parsedAmount = Number(stakeAmount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || parsedAmount > 100_000) {
+        res.status(400).json({ error: 'Stake amount must be a positive number.' });
+        return;
+      }
+
+      const normalizedToken = tokenSymbol === 'SKR' ? 'SKR' : 'USDC';
+      const treasuryConfig = resolveTreasuryConfig();
+
+      const slashPayload = Buffer.from(
+        `actake:solo_slash:${poolId}:${validUserPubkey}:${parsedAmount.toFixed(2)}:${normalizedToken}:${treasuryConfig.treasuryWallet || 'treasury'}`,
+        'utf-8'
+      );
+      const oracleSignature = crypto
+        .sign(null, slashPayload, oracleKeys.privateKey)
+        .toString('hex');
+
+      const { entry, alreadySlashed } = await recordPersonalSlash({
+        poolId,
+        poolTitle: typeof poolTitle === 'string' ? poolTitle.slice(0, 120) : undefined,
+        userPubkey: validUserPubkey,
+        stakeAmount: parsedAmount,
+        tokenSymbol: normalizedToken,
+        escrowWallet: treasuryConfig.escrowWallet || '',
+        treasuryWallet: treasuryConfig.treasuryWallet || '',
+        txSignature: typeof txSignature === 'string' ? txSignature.trim().slice(0, 140) : '',
+        onchainConfirmed: Boolean(onchainConfirmed),
+        oracleSignature,
+      });
+
+      res.json({
+        slashed: true,
+        alreadySlashed,
+        routedToTreasuryPct: 100,
+        treasury: treasuryConfig,
+        entry,
+        oraclePublicKeyHex: oracleKeys.publicKeyHex,
+        oracleSignature,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to record personal stake slash.';
       res.status(500).json({ error: message });
     }
   });

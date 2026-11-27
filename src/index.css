@@ -82,6 +82,15 @@
   background: rgba(24, 30, 37, 0.25);
 }
 
+.actake-no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.actake-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Mascot & micro-interaction animations (compositor-only) */
 @keyframes actake-mascot-float {
   0%,
@@ -231,6 +240,156 @@
   will-change: transform;
 }
 
+/* Stake locked -> slashed funds-outflow transition animations */
+@keyframes actake-slash-row-collapse {
+  0%,
+  74% {
+    grid-template-rows: 1fr;
+    margin-bottom: 0;
+  }
+  100% {
+    grid-template-rows: 0fr;
+    margin-bottom: -14px;
+  }
+}
+
+@keyframes actake-slash-card-outflow {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+    background-color: #FFFFFF;
+    border-color: rgba(239, 68, 68, 0.55);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.32);
+  }
+  8% {
+    transform: translate3d(-5px, 0, 0) scale(0.995);
+    background-color: #FEF2F2;
+    border-color: rgba(220, 38, 38, 0.85);
+    box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.14);
+  }
+  16% {
+    transform: translate3d(5px, 0, 0) scale(0.995);
+    background-color: #FEF2F2;
+    border-color: rgba(220, 38, 38, 0.8);
+  }
+  24% {
+    transform: translate3d(-3px, 0, 0) scale(0.995);
+  }
+  32%,
+  66% {
+    transform: translate3d(0, 0, 0) scale(0.99);
+    opacity: 1;
+    background-color: #FEF2F2;
+    border-color: rgba(220, 38, 38, 0.45);
+    box-shadow: 0 12px 28px rgba(220, 38, 38, 0.12);
+  }
+  100% {
+    transform: translate3d(44px, -8px, 0) scale(0.95);
+    opacity: 0;
+    background-color: #FEE2E2;
+    border-color: rgba(220, 38, 38, 0.25);
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0);
+  }
+}
+
+@keyframes actake-funds-outflow-float {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.9);
+  }
+  18% {
+    opacity: 1;
+    transform: translate3d(4px, -4px, 0) scale(1.04);
+  }
+  65% {
+    opacity: 1;
+    transform: translate3d(16px, -16px, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(34px, -28px, 0) scale(0.92);
+  }
+}
+
+@keyframes actake-bar-drain-right {
+  0% {
+    transform: scaleX(1);
+  }
+  20% {
+    transform: scaleX(1);
+  }
+  75%,
+  100% {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes actake-transfer-sweep {
+  0% {
+    transform: translate3d(-100%, 0, 0);
+  }
+  100% {
+    transform: translate3d(220%, 0, 0);
+  }
+}
+
+@keyframes actake-debit-badge-pop {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0) scale(0.92);
+  }
+  18% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1.03);
+  }
+  80% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -6px, 0) scale(0.96);
+  }
+}
+
+.actake-slash-row {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: actake-slash-row-collapse 1350ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.actake-slash-row-inner {
+  overflow: hidden;
+  padding: 2px;
+  margin: -2px;
+}
+
+.actake-slash-card {
+  animation: actake-slash-card-outflow 1350ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.actake-funds-outflow-chip {
+  animation: actake-funds-outflow-float 1150ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.actake-bar-drain {
+  transform-origin: right center;
+  animation: actake-bar-drain-right 950ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  will-change: transform;
+}
+
+.actake-transfer-sweep {
+  animation: actake-transfer-sweep 900ms ease-in-out infinite;
+  will-change: transform;
+}
+
+.actake-debit-badge {
+  animation: actake-debit-badge-pop 1450ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .actake-mascot-float,
   .actake-mascot-shadow,
@@ -239,7 +398,23 @@
   .actake-skeleton,
   .actake-plush-float,
   .actake-plush-float-delayed,
-  .actake-bubble-float {
+  .actake-bubble-float,
+  .actake-transfer-sweep {
+    animation: none;
+  }
+
+  .actake-slash-card {
+    animation: none;
+    background-color: #FEF2F2;
+    border-color: rgba(220, 38, 38, 0.55);
+    opacity: 0.35;
+    transition: opacity 400ms ease;
+  }
+
+  .actake-slash-row,
+  .actake-funds-outflow-chip,
+  .actake-bar-drain,
+  .actake-debit-badge {
     animation: none;
   }
 }

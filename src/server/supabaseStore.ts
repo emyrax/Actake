@@ -80,6 +80,35 @@ export interface GlobalActivitySummary {
   recentCheckins: StoredCheckin[];
 }
 
+export type TreasuryEntryType = 'protocol_fee' | 'solo_slash' | 'zero_winner_slash';
+
+export interface StoredTreasuryLedgerEntry {
+  id: string;
+  poolId: string;
+  poolTitle: string;
+  userPubkey: string;
+  entryType: TreasuryEntryType;
+  tokenSymbol: PoolTokenSymbol;
+  amount: number;
+  escrowWallet: string;
+  treasuryWallet: string;
+  status: 'accrued' | 'swept';
+  txSignature: string;
+  oracleSignature: string;
+  createdAt: string;
+}
+
+export interface TreasuryConfigInput {
+  escrowWallet: string | null;
+  treasuryWallet: string | null;
+  escrowConfigured: boolean;
+  treasuryConfigured: boolean;
+  pollarSafeForRealDeposits: boolean;
+  usdcProtocolFeePct: number;
+  skrProtocolFeePct: number;
+  soloSlashRouting: '100_percent_treasury';
+}
+
 const USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
 const SKR_MINT = 'SKR1111111111111111111111111111111111111111';
 
@@ -145,6 +174,7 @@ export function isSupabaseActive(): boolean {
 const memoryPools = new Map<string, StoredPool>();
 const memoryParticipants = new Map<string, StoredParticipant[]>();
 const memoryCheckins: StoredCheckin[] = [];
+const memoryTreasuryLedger: StoredTreasuryLedgerEntry[] = [];
 
 function seedMemoryStore() {
   if (memoryPools.size > 0) return;
@@ -237,6 +267,20 @@ function seedMemoryStore() {
 
   memoryParticipants.set('squad-7am-club', [
     {
+      id: 'part-sarah',
+      poolId: 'squad-7am-club',
+      userPubkey: 'Sarah4zGymPool8k2mPq8vN1rT6wL3cF5bH2jY9uE',
+      displayName: 'Sarah',
+      stakedAmount: 10,
+      checkinsCompleted: 7,
+      checkinBitmap: 0b1111111,
+      streakDays: 32,
+      isSlashed: false,
+      hasClaimed: false,
+      joinedTxSignature: '3kSarahJoin7AMClubDevnetSig88y9p1',
+      joinedAt: new Date(now - 5 * 86_400_000).toISOString(),
+    },
+    {
       id: 'part-alex',
       poolId: 'squad-7am-club',
       userPubkey: 'Alex9xK2mPq8vN1rT6wL3cF5bH2jY9uE7AMWakeClub',
@@ -251,18 +295,32 @@ function seedMemoryStore() {
       joinedAt: new Date(now - 5 * 86_400_000).toISOString(),
     },
     {
-      id: 'part-sarah',
+      id: 'part-priya',
       poolId: 'squad-7am-club',
-      userPubkey: 'Sarah4zGymPool8k2mPq8vN1rT6wL3cF5bH2jY9uE',
-      displayName: 'Sarah',
+      userPubkey: 'Priya8mN4vP2qW7rL9xT1cB5dF6hJ3kS8uY2wE4mK2',
+      displayName: 'Priya',
       stakedAmount: 10,
-      checkinsCompleted: 7,
-      checkinBitmap: 0b1111111,
-      streakDays: 32,
+      checkinsCompleted: 6,
+      checkinBitmap: 0b111111,
+      streakDays: 11,
       isSlashed: false,
       hasClaimed: false,
-      joinedTxSignature: '3kSarahJoin7AMClubDevnetSig88y9p1',
+      joinedTxSignature: '4pPriyaJoin7AMClubDevnetSig61c3d9',
       joinedAt: new Date(now - 5 * 86_400_000).toISOString(),
+    },
+    {
+      id: 'part-devon',
+      poolId: 'squad-7am-club',
+      userPubkey: 'Devon3qW9rT5vN2pL8mK4xC6bH1jF7yU9sE3aD8vP1',
+      displayName: 'Devon',
+      stakedAmount: 10,
+      checkinsCompleted: 5,
+      checkinBitmap: 0b11111,
+      streakDays: 5,
+      isSlashed: false,
+      hasClaimed: false,
+      joinedTxSignature: '7dDevonJoin7AMClubDevnetSig42e8r1',
+      joinedAt: new Date(now - 4 * 86_400_000).toISOString(),
     },
     {
       id: 'part-marcus',
@@ -278,6 +336,20 @@ function seedMemoryStore() {
       joinedTxSignature: '2yMarcusJoin7AMClubDevnetSig5b8f',
       joinedAt: new Date(now - 4 * 86_400_000).toISOString(),
     },
+    {
+      id: 'part-kyle',
+      poolId: 'squad-7am-club',
+      userPubkey: 'Kyle7rT9mP4vN2qW8xL3cF5bH1jY6uE4dS9aK2rT9',
+      displayName: 'Kyle',
+      stakedAmount: 10,
+      checkinsCompleted: 2,
+      checkinBitmap: 0b0000011,
+      streakDays: 0,
+      isSlashed: true,
+      hasClaimed: false,
+      joinedTxSignature: '9kKyleJoin7AMClubDevnetSig12a9z4',
+      joinedAt: new Date(now - 3 * 86_400_000).toISOString(),
+    },
   ]);
 
   memoryParticipants.set('squad-skr-builders', [
@@ -287,13 +359,114 @@ function seedMemoryStore() {
       userPubkey: 'Nina6zSkrBuilder9c4d11m2nK8vJ7xQ2wR4pL5tH',
       displayName: 'Nina',
       stakedAmount: 25,
-      checkinsCompleted: 11,
-      checkinBitmap: 0b11111111111,
+      checkinsCompleted: 13,
+      checkinBitmap: 0b1111111111111,
       streakDays: 21,
       isSlashed: false,
       hasClaimed: false,
       joinedTxSignature: '6zNinaJoinSkrPoolSig9c4d11m2nK8vJ',
       joinedAt: new Date(now - 3 * 86_400_000).toISOString(),
+    },
+    {
+      id: 'part-tomas',
+      poolId: 'squad-skr-builders',
+      userPubkey: 'Tomas8kL4mP9vN2qW7rT1cB5dF6hJ3xS8uY2wE8kL4',
+      displayName: 'Tomas',
+      stakedAmount: 25,
+      checkinsCompleted: 12,
+      checkinBitmap: 0b111111111111,
+      streakDays: 18,
+      isSlashed: false,
+      hasClaimed: false,
+      joinedTxSignature: '8tTomasJoinSkrPoolSig7b2e44p9mK1wQ',
+      joinedAt: new Date(now - 3 * 86_400_000).toISOString(),
+    },
+    {
+      id: 'part-hana',
+      poolId: 'squad-skr-builders',
+      userPubkey: 'Hana3xW9rT5vN2pL8mK4qC6bH1jF7yU9sE3aD3xW9',
+      displayName: 'Hana',
+      stakedAmount: 25,
+      checkinsCompleted: 11,
+      checkinBitmap: 0b11111111111,
+      streakDays: 12,
+      isSlashed: false,
+      hasClaimed: false,
+      joinedTxSignature: '3hHanaJoinSkrPoolSig5n8d22k4vR9yP',
+      joinedAt: new Date(now - 3 * 86_400_000).toISOString(),
+    },
+    {
+      id: 'part-omar',
+      poolId: 'squad-skr-builders',
+      userPubkey: 'Omar7qR2mP4vN9wT1cB5dF6hJ3kS8uY2xL4aK7qR2',
+      displayName: 'Omar',
+      stakedAmount: 25,
+      checkinsCompleted: 10,
+      checkinBitmap: 0b1111111111,
+      streakDays: 10,
+      isSlashed: false,
+      hasClaimed: false,
+      joinedTxSignature: '7oOmarJoinSkrPoolSig2m6f88c3pL5tN',
+      joinedAt: new Date(now - 2 * 86_400_000).toISOString(),
+    },
+    {
+      id: 'part-jules',
+      poolId: 'squad-skr-builders',
+      userPubkey: 'Jules1nV8qW4rT7mP2xL9cB5dF6hJ3kS8uY2aK1nV8',
+      displayName: 'Jules',
+      stakedAmount: 25,
+      checkinsCompleted: 6,
+      checkinBitmap: 0b000000111111,
+      streakDays: 0,
+      isSlashed: true,
+      hasClaimed: false,
+      joinedTxSignature: '1jJulesJoinSkrPoolSig4v9c11r8nM2xD',
+      joinedAt: new Date(now - 2 * 86_400_000).toISOString(),
+    },
+  ]);
+
+  memoryParticipants.set('hunt-stadium-run', [
+    {
+      id: 'part-elena',
+      poolId: 'hunt-stadium-run',
+      userPubkey: 'Elena5vR2mP9nK4qW7xL1cB5dF6hJ3kS8uY2aK5vR2',
+      displayName: 'Elena',
+      stakedAmount: 15,
+      checkinsCompleted: 7,
+      checkinBitmap: 0b1111111,
+      streakDays: 19,
+      isSlashed: false,
+      hasClaimed: false,
+      joinedTxSignature: '5eElenaJoinStadiumSig8n2k44r9pM1vL',
+      joinedAt: new Date(now - 2 * 86_400_000).toISOString(),
+    },
+    {
+      id: 'part-mateo',
+      poolId: 'hunt-stadium-run',
+      userPubkey: 'Mateo9cF4mP2vN7qW1rT8xL3bH5jY6uE4dS9aK9cF4',
+      displayName: 'Mateo',
+      stakedAmount: 15,
+      checkinsCompleted: 6,
+      checkinBitmap: 0b111111,
+      streakDays: 9,
+      isSlashed: false,
+      hasClaimed: false,
+      joinedTxSignature: '9mMateoJoinStadiumSig3k7d11v2nR8yP',
+      joinedAt: new Date(now - 2 * 86_400_000).toISOString(),
+    },
+    {
+      id: 'part-sam',
+      poolId: 'hunt-stadium-run',
+      userPubkey: 'Sam2wQ8rT4vN9mP1xL6cB5dF3hJ7kS8uY2aK2wQ8',
+      displayName: 'Sam',
+      stakedAmount: 15,
+      checkinsCompleted: 2,
+      checkinBitmap: 0b0000011,
+      streakDays: 0,
+      isSlashed: true,
+      hasClaimed: false,
+      joinedTxSignature: '2sSamJoinStadiumSig6p4f99m1cL8tN',
+      joinedAt: new Date(now - 2 * 86_400_000).toISOString(),
     },
   ]);
 
@@ -792,9 +965,15 @@ export async function getSquadFeedAndLeaderboard(poolId: string): Promise<{
     }
   }
 
-  const participants = [...(memoryParticipants.get(poolId) || [])].sort(
-    (a, b) => b.checkinsCompleted - a.checkinsCompleted
-  );
+  const participants = [...(memoryParticipants.get(poolId) || [])].sort((a, b) => {
+    // Status-based leaderboard: active/verified members always rank ahead of slashed members
+    if (a.isSlashed !== b.isSlashed) return a.isSlashed ? 1 : -1;
+    if (b.checkinsCompleted !== a.checkinsCompleted) {
+      return b.checkinsCompleted - a.checkinsCompleted;
+    }
+    if (b.streakDays !== a.streakDays) return b.streakDays - a.streakDays;
+    return b.stakedAmount - a.stakedAmount;
+  });
   const checkins = memoryCheckins
     .filter((c) => c.poolId === poolId)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -1148,6 +1327,8 @@ export async function recordPoolSettlement(input: {
   txSignature: string;
   onchainConfirmed: boolean;
   oracleSignature: string;
+  escrowWallet?: string | null;
+  treasuryWallet?: string | null;
 }): Promise<StoredSettlement> {
   const nowIso = new Date().toISOString();
   const record: StoredSettlement = {
@@ -1165,10 +1346,10 @@ export async function recordPoolSettlement(input: {
     settledAt: nowIso,
   };
 
+  const pool = await getPoolById(input.poolId);
   const sb = getSupabase();
   if (sb) {
     try {
-      const pool = await getPoolById(input.poolId);
       if (pool) {
         await sb.from('settlements').insert({
           pool_id: pool.id,
@@ -1200,6 +1381,304 @@ export async function recordPoolSettlement(input: {
     if (found) found.hasClaimed = true;
   }
 
+  if (input.protocolFee > 0) {
+    await recordTreasuryLedgerEntry({
+      poolId: input.poolId,
+      poolTitle: pool?.title || 'Actake Commitment Pool',
+      userPubkey: input.userPubkey,
+      entryType: 'protocol_fee',
+      tokenSymbol: input.tokenSymbol,
+      amount: input.protocolFee,
+      escrowWallet: input.escrowWallet || pool?.poolPubkey || '',
+      treasuryWallet: input.treasuryWallet || '',
+      status: input.onchainConfirmed && Boolean(input.treasuryWallet) ? 'swept' : 'accrued',
+      txSignature: input.txSignature,
+      oracleSignature: input.oracleSignature,
+    });
+  }
+
   return record;
 }
+
+function mapTreasuryLedgerRow(row: Record<string, unknown>): StoredTreasuryLedgerEntry {
+  const rawType = String(row.entry_type || 'protocol_fee');
+  const entryType: TreasuryEntryType =
+    rawType === 'solo_slash' || rawType === 'zero_winner_slash' ? rawType : 'protocol_fee';
+  return {
+    id: String(row.id),
+    poolId: String(row.pool_id),
+    poolTitle: String(row.pool_title || 'Actake Commitment Pool'),
+    userPubkey: String(row.user_pubkey),
+    entryType,
+    tokenSymbol: String(row.token_symbol) === 'SKR' ? 'SKR' : 'USDC',
+    amount: Number(row.amount || 0),
+    escrowWallet: String(row.escrow_wallet || ''),
+    treasuryWallet: String(row.treasury_wallet || ''),
+    status: String(row.status) === 'swept' ? 'swept' : 'accrued',
+    txSignature: String(row.tx_signature || ''),
+    oracleSignature: String(row.oracle_signature || ''),
+    createdAt: String(row.created_at || new Date().toISOString()),
+  };
+}
+
+export async function recordTreasuryLedgerEntry(input: {
+  poolId: string;
+  poolTitle: string;
+  userPubkey: string;
+  entryType: TreasuryEntryType;
+  tokenSymbol: PoolTokenSymbol;
+  amount: number;
+  escrowWallet: string;
+  treasuryWallet: string;
+  status: 'accrued' | 'swept';
+  txSignature: string;
+  oracleSignature: string;
+}): Promise<{ entry: StoredTreasuryLedgerEntry; duplicate: boolean }> {
+  const safeAmount = Number(Math.max(0, input.amount).toFixed(2));
+  const existingMem = memoryTreasuryLedger.find(
+    (e) =>
+      e.poolId === input.poolId &&
+      e.userPubkey === input.userPubkey &&
+      e.entryType === input.entryType
+  );
+  if (existingMem) {
+    return { entry: existingMem, duplicate: true };
+  }
+
+  const nowIso = new Date().toISOString();
+  const fallbackRecord: StoredTreasuryLedgerEntry = {
+    id: crypto.randomUUID(),
+    poolId: input.poolId,
+    poolTitle: input.poolTitle,
+    userPubkey: input.userPubkey,
+    entryType: input.entryType,
+    tokenSymbol: input.tokenSymbol,
+    amount: safeAmount,
+    escrowWallet: input.escrowWallet,
+    treasuryWallet: input.treasuryWallet,
+    status: input.status,
+    txSignature: input.txSignature,
+    oracleSignature: input.oracleSignature,
+    createdAt: nowIso,
+  };
+
+  const sb = getSupabase();
+  if (sb && safeAmount > 0) {
+    try {
+      const { data: existingRow } = await sb
+        .from('treasury_ledger')
+        .select('*')
+        .eq('pool_id', input.poolId)
+        .eq('user_pubkey', input.userPubkey)
+        .eq('entry_type', input.entryType)
+        .maybeSingle();
+
+      if (existingRow) {
+        const mapped = mapTreasuryLedgerRow(existingRow as Record<string, unknown>);
+        memoryTreasuryLedger.unshift(mapped);
+        return { entry: mapped, duplicate: true };
+      }
+
+      const { data: inserted, error: insertErr } = await sb
+        .from('treasury_ledger')
+        .insert({
+          pool_id: input.poolId,
+          pool_title: input.poolTitle,
+          user_pubkey: input.userPubkey,
+          entry_type: input.entryType,
+          token_symbol: input.tokenSymbol,
+          amount: safeAmount,
+          escrow_wallet: input.escrowWallet,
+          treasury_wallet: input.treasuryWallet,
+          status: input.status,
+          tx_signature: input.txSignature,
+          oracle_signature: input.oracleSignature,
+        })
+        .select()
+        .single();
+
+      if (!insertErr && inserted) {
+        const mapped = mapTreasuryLedgerRow(inserted as Record<string, unknown>);
+        memoryTreasuryLedger.unshift(mapped);
+        return { entry: mapped, duplicate: false };
+      }
+      if (insertErr) {
+        handleSupabaseQueryError('recordTreasuryLedgerEntry', insertErr);
+      }
+    } catch (err) {
+      console.warn(
+        'Supabase recordTreasuryLedgerEntry fallback:',
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  memoryTreasuryLedger.unshift(fallbackRecord);
+  return { entry: fallbackRecord, duplicate: false };
+}
+
+/**
+ * Records a missed personal (solo) commitment slash:
+ * - Marks the participant slashed (idempotent).
+ * - Logs a missed check-in entry for auditability.
+ * - Routes 100% of the forfeited stake to the Actake Fee Treasury Ledger.
+ */
+export async function recordPersonalSlash(input: {
+  poolId: string;
+  poolTitle?: string;
+  userPubkey: string;
+  stakeAmount: number;
+  tokenSymbol: PoolTokenSymbol;
+  escrowWallet: string;
+  treasuryWallet: string;
+  txSignature: string;
+  onchainConfirmed: boolean;
+  oracleSignature: string;
+}): Promise<{ entry: StoredTreasuryLedgerEntry; alreadySlashed: boolean }> {
+  const pool = await getPoolById(input.poolId);
+  const title = input.poolTitle?.trim() || pool?.title || 'Personal Accountability Stake';
+  const amount = Number((pool?.stakeAmount ?? input.stakeAmount).toFixed(2));
+  const tokenSymbol: PoolTokenSymbol = pool?.tokenSymbol || input.tokenSymbol;
+
+  const { entry, duplicate } = await recordTreasuryLedgerEntry({
+    poolId: input.poolId,
+    poolTitle: title,
+    userPubkey: input.userPubkey,
+    entryType: 'solo_slash',
+    tokenSymbol,
+    amount,
+    escrowWallet: input.escrowWallet || pool?.poolPubkey || '',
+    treasuryWallet: input.treasuryWallet,
+    status: input.onchainConfirmed && Boolean(input.treasuryWallet) ? 'swept' : 'accrued',
+    txSignature: input.txSignature,
+    oracleSignature: input.oracleSignature,
+  });
+
+  if (duplicate) {
+    return { entry, alreadySlashed: true };
+  }
+
+  const sb = getSupabase();
+  if (sb && pool) {
+    try {
+      await sb
+        .from('participants')
+        .update({ is_slashed: true, streak_days: 0 })
+        .eq('pool_id', pool.id)
+        .eq('user_pubkey', input.userPubkey);
+      await sb
+        .from('pools')
+        .update({
+          slashed_pot_available: Number((pool.slashedPotAvailable + amount).toFixed(2)),
+          is_settled: pool.poolType === 0 ? true : pool.isSettled,
+        })
+        .eq('id', pool.id);
+    } catch (err) {
+      console.warn('Supabase recordPersonalSlash note:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  const memParts = memoryParticipants.get(input.poolId);
+  if (memParts) {
+    const found = memParts.find((p) => p.userPubkey === input.userPubkey);
+    if (found) {
+      found.isSlashed = true;
+      found.streakDays = 0;
+    }
+  }
+  const memPool = memoryPools.get(input.poolId);
+  if (memPool) {
+    memPool.slashedPotAvailable = Number((memPool.slashedPotAvailable + amount).toFixed(2));
+    if (memPool.poolType === 0) memPool.isSettled = true;
+  }
+
+  return { entry, alreadySlashed: false };
+}
+
+export async function getTreasurySummary(config: TreasuryConfigInput): Promise<{
+  storageMode: 'supabase' | 'memory';
+  config: TreasuryConfigInput;
+  totals: {
+    activeEscrowUsdc: number;
+    activeEscrowSkr: number;
+    protocolFeesUsdc: number;
+    protocolFeesSkr: number;
+    soloSlashedUsdc: number;
+    soloSlashedSkr: number;
+    totalTreasuryUsdc: number;
+    totalTreasurySkr: number;
+  };
+  recentEntries: StoredTreasuryLedgerEntry[];
+}> {
+  seedMemoryStore();
+  const pools = await listPools();
+
+  let entries: StoredTreasuryLedgerEntry[] = memoryTreasuryLedger.slice(0, 25);
+  let storageMode: 'supabase' | 'memory' = 'memory';
+
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb
+        .from('treasury_ledger')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (!error && data) {
+        storageMode = 'supabase';
+        entries = data.map((row) => mapTreasuryLedgerRow(row as Record<string, unknown>));
+      } else if (error) {
+        handleSupabaseQueryError('getTreasurySummary', error);
+      }
+    } catch (err) {
+      console.warn('Supabase getTreasurySummary fallback:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  const activeEscrowUsdc = Number(
+    pools
+      .filter((p) => !p.isSettled && p.tokenSymbol === 'USDC')
+      .reduce((acc, p) => acc + p.totalStaked, 0)
+      .toFixed(2)
+  );
+  const activeEscrowSkr = Number(
+    pools
+      .filter((p) => !p.isSettled && p.tokenSymbol === 'SKR')
+      .reduce((acc, p) => acc + p.totalStaked, 0)
+      .toFixed(2)
+  );
+
+  let protocolFeesUsdc = 0;
+  let protocolFeesSkr = 0;
+  let soloSlashedUsdc = 0;
+  let soloSlashedSkr = 0;
+
+  for (const e of entries) {
+    if (e.entryType === 'protocol_fee') {
+      if (e.tokenSymbol === 'USDC') protocolFeesUsdc += e.amount;
+      else protocolFeesSkr += e.amount;
+    } else {
+      if (e.tokenSymbol === 'USDC') soloSlashedUsdc += e.amount;
+      else soloSlashedSkr += e.amount;
+    }
+  }
+
+  return {
+    storageMode,
+    config,
+    totals: {
+      activeEscrowUsdc,
+      activeEscrowSkr,
+      protocolFeesUsdc: Number(protocolFeesUsdc.toFixed(2)),
+      protocolFeesSkr: Number(protocolFeesSkr.toFixed(2)),
+      soloSlashedUsdc: Number(soloSlashedUsdc.toFixed(2)),
+      soloSlashedSkr: Number(soloSlashedSkr.toFixed(2)),
+      totalTreasuryUsdc: Number((protocolFeesUsdc + soloSlashedUsdc).toFixed(2)),
+      totalTreasurySkr: Number((protocolFeesSkr + soloSlashedSkr).toFixed(2)),
+    },
+    recentEntries: entries.slice(0, 15),
+  };
+}
+
 

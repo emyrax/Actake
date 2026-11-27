@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -28,11 +28,11 @@ import {
   GlobalActivitySummary,
   StakeCommitment,
   TokenType,
+  TreasuryConfigSummary,
   WalletConnectionKind,
 } from '../types/actake';
 import { useActakePollar } from '../context/ActakePollarProvider';
 import {
-  buildWeekStreakStrip,
   formatClockTime12h,
   formatCountdownParts,
   getNextAlarmTimestamp,
@@ -40,8 +40,10 @@ import {
 } from '../utils/timeUtils';
 import { ALARM_SOUNDS } from '../utils/alarmAudio';
 import { MascotDisplay } from './MascotDisplay';
+import { ScrollableCalendarStrip } from './ScrollableCalendarStrip';
 import {
   ActivityPulseSkeleton,
+  ConfirmDialog,
   EmptyState,
   ErrorStateCard,
   SparklineSvg,
@@ -71,6 +73,9 @@ interface HomeViewProps {
   onAdjustVaultBalance: (kind: 'fund' | 'withdraw', amount: number, token: TokenType) => void;
   onClaimVerifiedStake?: (stake: StakeCommitment) => Promise<void>;
   claimingStakeId?: string | null;
+  onSlashPersonalStake?: (stake: StakeCommitment) => Promise<void>;
+  slashingStakeId?: string | null;
+  treasuryConfig?: TreasuryConfigSummary | null;
 }
 
 type TimeOfDayFilter = 'all' | 'morning' | 'midday' | 'afternoon';
@@ -99,6 +104,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onAdjustVaultBalance,
   onClaimVerifiedStake,
   claimingStakeId,
+  onSlashPersonalStake,
+  slashingStakeId,
+  treasuryConfig,
 }) => {
   const pollar = useActakePollar();
   const [timeFilter, setTimeFilter] = useState<TimeOfDayFilter>('all');
@@ -106,16 +114,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [vaultAmount, setVaultAmount] = useState<number>(25);
   const [vaultToken, setVaultToken] = useState<TokenType>('USDC');
   const [vaultFormError, setVaultFormError] = useState<string | null>(null);
+  const [pendingForfeitStake, setPendingForfeitStake] = useState<StakeCommitment | null>(null);
+  const [exitingSlashed, setExitingSlashed] = useState<
+    Record<string, { stake: StakeCommitment; originalIndex: number }>
+  >({});
+  const [recentSlashDebit, setRecentSlashDebit] = useState<{
+    id: string;
+    amount: number;
+    token: TokenType;
+  } | null>(null);
+
+  const prevStakeStatusRef = useRef<Record<string, StakeCommitment['status']>>({});
+  const prevVisibleIndexRef = useRef<Record<string, number>>({});
+  const slashTimersRef = useRef<Record<string, number>>({});
+  const debitTimerRef = useRef<number | null>(null);
 
   const todayFormatted = useMemo(() => {
     const d = new Date(nowMs);
     return `Today ${d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}`;
   }, [Math.floor(nowMs / 60000)]);
-
-  const weekDays = useMemo(
-    () => buildWeekStreakStrip(new Date(nowMs)),
-    [Math.floor(nowMs / 60000)]
-  );
 
   const activeStakes = useMemo(() => {
     return stakes
@@ -139,6 +156,117 @@ export const HomeView: React.FC<HomeViewProps> = ({
       return stake.alarmHour >= 17;
     });
   }, [activeStakes, timeFilter]);
+
+  // Detect locked/ringing -> slashed transitions and keep the card mounted during the outflow animation
+  useEffect(() => {
+    const prevStatuses = prevStakeStatusRef.current;
+    const newlySlashed: Array<{ stake: StakeCommitment; originalIndex: number }> = [];
+
+    for (const s of stakes) {
+      const prevStatus = prevStatuses[s.id];
+      if ((prevStatus === 'locked' || prevStatus === 'ringing') && s.status === 'slashed') {
+        const originalIndex = prevVisibleIndexRef.current[s.id] ?? 0;
+        newlySlashed.push({ stake: s, originalIndex });
+      }
+    }
+
+    const updatedStatuses: Record<string, StakeCommitment['status']> = {};
+    for (const s of stakes) {
+      updatedStatuses[s.id] = s.status;
+    }
+    prevStakeStatusRef.current = updatedStatuses;
+
+    if (newlySlashed.length === 0) return;
+
+    setExitingSlashed((prev) => {
+      const next = { ...prev };
+      for (const item of newlySlashed) {
+        next[item.stake.id] = item;
+      }
+      return next;
+    });
+
+    const latest = newlySlashed[newlySlashed.length - 1];
+    setRecentSlashDebit({
+      id: latest.stake.id,
+      amount: latest.stake.amount,
+      token: latest.stake.token,
+    });
+    if (debitTimerRef.current !== null) {
+      window.clearTimeout(debitTimerRef.current);
+    }
+    debitTimerRef.current = window.setTimeout(() => {
+      setRecentSlashDebit(null);
+      debitTimerRef.current = null;
+    }, 1500);
+
+    for (const item of newlySlashed) {
+      const id = item.stake.id;
+      if (slashTimersRef.current[id]) {
+        window.clearTimeout(slashTimersRef.current[id]);
+      }
+      slashTimersRef.current[id] = window.setTimeout(() => {
+        setExitingSlashed((prev) => {
+          if (!prev[id]) return prev;
+          const copy = { ...prev };
+          delete copy[id];
+          return copy;
+        });
+        delete slashTimersRef.current[id];
+      }, 1380);
+    }
+  }, [stakes]);
+
+  // Keep track of each active stake's visible index AFTER checking for newly slashed items
+  useEffect(() => {
+    const nextMap: Record<string, number> = {};
+    filteredStakes.forEach((entry, idx) => {
+      nextMap[entry.stake.id] = idx;
+    });
+    prevVisibleIndexRef.current = nextMap;
+  }, [filteredStakes]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(slashTimersRef.current).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      if (debitTimerRef.current !== null) {
+        window.clearTimeout(debitTimerRef.current);
+      }
+    };
+  }, []);
+
+  const displayedStakes = useMemo(() => {
+    const base = filteredStakes.map((entry) => ({
+      ...entry,
+      isSlashingOut: false,
+    }));
+
+    const exitingList = (
+      Object.values(exitingSlashed) as Array<{
+        stake: StakeCommitment;
+        originalIndex: number;
+      }>
+    )
+      .filter((item) => !base.some((b) => b.stake.id === item.stake.id))
+      .sort((a, b) => a.originalIndex - b.originalIndex);
+
+    if (exitingList.length === 0) return base;
+
+    const merged = [...base];
+    for (const item of exitingList) {
+      const nextTs = getNextAlarmTimestamp(item.stake.alarmHour, item.stake.alarmMinute, nowMs);
+      const insertAt = Math.max(0, Math.min(item.originalIndex, merged.length));
+      merged.splice(insertAt, 0, {
+        stake: item.stake,
+        nextTs,
+        remainingMs: nextTs - nowMs,
+        isSlashingOut: true,
+      });
+    }
+    return merged;
+  }, [filteredStakes, exitingSlashed, nowMs]);
 
   const verifiedUnclaimedStakes = useMemo(
     () => stakes.filter((s) => s.status === 'verified'),
@@ -519,62 +647,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </div>
 
-      {/* 7-Day Vertical Pill Streak Calendar */}
-      <section className="space-y-2" aria-label="7-day consistency streak">
-        <div className="grid grid-cols-7 gap-1.5 sm:gap-3">
-          {weekDays.map((day) => (
-            <div key={`${day.dayLabel}-${day.dateNum}`} className="flex flex-col items-center">
-              <span className="text-[11px] font-semibold text-[#6B6663] mb-1.5">
-                {day.dayLabel}
-              </span>
-
-              <div className="h-2 flex items-center justify-center mb-1">
-                {day.isToday && (
-                  <span
-                    aria-hidden="true"
-                    className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[5px] border-t-[#111114]"
-                  />
-                )}
-              </div>
-
-              <div
-                className={`w-full max-w-[68px] rounded-full py-2 px-1 flex flex-col items-center justify-between gap-1.5 min-h-[78px] sm:min-h-[82px] transition-all border ${
-                  day.isToday
-                    ? 'bg-[#F38452] border-[#E87340] text-white shadow-[0_10px_22px_rgba(241,106,46,0.34)]'
-                    : 'bg-white border-[#EFE2D9] text-[#111114]'
-                }`}
-              >
-                <span
-                  className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center font-display text-xs sm:text-sm font-bold tabular-nums ${
-                    day.isToday
-                      ? 'bg-white text-[#111114]'
-                      : day.completed
-                        ? 'bg-[#E6F8EE] text-[#16A34A]'
-                        : 'bg-[#FFF4EE] text-[#6B6663]'
-                  }`}
-                >
-                  {day.completed && !day.isToday ? (
-                    <Check className="w-4 h-4 stroke-[2.5]" />
-                  ) : (
-                    day.dateNum
-                  )}
-                </span>
-                <span
-                  className={`text-[10px] font-semibold ${
-                    day.isToday
-                      ? 'text-white'
-                      : day.completed
-                        ? 'text-[#16A34A]'
-                        : 'text-[#877F7A]'
-                  }`}
-                >
-                  {day.isToday ? 'Today' : day.completed ? 'Done' : 'Plan'}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* Horizontal X-Axis Scrollable Calendar with Auto Month Switching */}
+      <ScrollableCalendarStrip
+        nowMs={nowMs}
+        streakDays={streakDays}
+        activeStakeCount={activeStakes.length}
+      />
 
       {/* Active Stakes + Right Column (Escrow Breakdown + Live Community Pulse) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -628,7 +706,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
 
           {/* Habit Stake Cards */}
-          {filteredStakes.length === 0 ? (
+          {displayedStakes.length === 0 ? (
             <EmptyState
               showMascot
               title={
@@ -652,7 +730,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             />
           ) : (
             <div className="space-y-3.5">
-              {filteredStakes.map(({ stake, nextTs, remainingMs }) => {
+              {displayedStakes.map(({ stake, nextTs, remainingMs, isSlashingOut }) => {
                 const fmt = formatClockTime12h(stake.alarmHour, stake.alarmMinute);
                 const cd = formatCountdownParts(remainingMs);
                 const dayText = isSameDayAlarm(nextTs, nowMs);
@@ -661,98 +739,241 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   10,
                   Math.min(96, Math.round(((totalWindowMs - remainingMs) / totalWindowMs) * 100))
                 );
+                const isPendingSlash = !isSlashingOut && slashingStakeId === stake.id;
+                const shortTreasury = treasuryConfig?.treasuryWallet
+                  ? `${treasuryConfig.treasuryWallet.slice(0, 4)}...${treasuryConfig.treasuryWallet.slice(-4)}`
+                  : 'Actake Treasury';
 
                 return (
                   <div
                     key={stake.id}
-                    className="actake-card p-5 flex flex-col justify-between gap-4"
+                    className={isSlashingOut ? 'actake-slash-row' : undefined}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3.5 min-w-0">
-                        <div className="w-11 h-11 rounded-2xl bg-[#FFF2EA] text-[#F16A2E] flex items-center justify-center shrink-0">
-                          <Camera className="w-5 h-5" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-display text-base font-bold text-[#111114] truncate">
-                            {stake.categoryName}
-                          </div>
-                          <div className="text-xs text-[#6B6663] mt-0.5 tabular-nums">
-                            {fmt.full} ({dayText}) · {stake.frequencyLabel || 'Daily'} ·{' '}
-                            {stake.token} {stake.protocolFeePct === 0 ? '(0% fee)' : '(SPL)'}
-                          </div>
-                          {stake.motivationNote && (
-                            <p className="text-xs text-[#877F7A] mt-1 line-clamp-1">
-                              “{stake.motivationNote}”
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="text-right shrink-0 tabular-nums">
-                        <div className="font-display text-lg font-extrabold text-[#111114]">
-                          ${stake.amount.toFixed(2)}
-                        </div>
-                        <div className="text-xs font-semibold text-[#16A34A]">
-                          +${stake.slashedBonusEstimate.toFixed(2)} split
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs tabular-nums">
-                        <span
-                          className={
-                            cd.isUrgent ? 'text-[#F16A2E] font-semibold' : 'text-[#6B6663]'
-                          }
-                        >
-                          Deadline in {cd.compact}
-                        </span>
-                        <span className="text-[#6B6663]">{progressPct}% elapsed</span>
-                      </div>
-                      <div className="h-2 w-full rounded-full bg-[#F7ECE6] overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-[#F16A2E] to-[#FF9B6B]"
-                          style={{ width: `${progressPct}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#F6EFEA]">
-                      <div className="flex flex-wrap items-center gap-2.5 min-w-0">
-                        <span className="inline-flex items-center gap-1.5 text-xs text-[#6B6663] truncate">
-                          <Volume2 className="w-3.5 h-3.5 text-[#F16A2E] shrink-0" />
-                          <span className="truncate">AI proof unlocks at {fmt.full}</span>
-                        </span>
-                        {stake.paidVia === 'pollar' && (
-                          <span className="text-[11px] font-bold text-[#F16A2E] whitespace-nowrap shrink-0">
-                            Pollar Paid
-                          </span>
-                        )}
-                        {stake.explorerUrl && (
-                          <a
-                            href={stake.explorerUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#16A34A] hover:underline whitespace-nowrap shrink-0"
-                          >
-                            <span>Devnet Tx</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onTriggerTestAlarm(stake)}
-                        className="min-h-[40px] px-4 py-1.5 rounded-full bg-[#FFF2EA] hover:bg-[#F16A2E] text-[#F16A2E] hover:text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0"
+                    <div className={isSlashingOut ? 'actake-slash-row-inner' : undefined}>
+                      <div
+                        className={`actake-card p-5 flex flex-col justify-between gap-4 relative transition-colors duration-300 ${
+                          isSlashingOut
+                            ? 'actake-slash-card pointer-events-none'
+                            : isPendingSlash
+                              ? 'border-[#FCA5A5] bg-[#FFF8F8]'
+                              : ''
+                        }`}
                       >
-                        Test Alarm
-                      </button>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3.5 min-w-0">
+                            <div
+                              className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-colors duration-300 ${
+                                isSlashingOut
+                                  ? 'bg-[#FEE2E2] text-[#DC2626]'
+                                  : 'bg-[#FFF2EA] text-[#F16A2E]'
+                              }`}
+                            >
+                              {isSlashingOut ? (
+                                <ArrowUpRight className="w-5 h-5" />
+                              ) : (
+                                <Camera className="w-5 h-5" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div
+                                  className={`font-display text-base font-bold truncate transition-colors duration-300 ${
+                                    isSlashingOut ? 'text-[#991B1B] line-through' : 'text-[#111114]'
+                                  }`}
+                                >
+                                  {stake.categoryName}
+                                </div>
+                                {isSlashingOut && (
+                                  <span className="px-2 py-0.5 rounded-full bg-[#DC2626] text-white text-[10px] font-bold uppercase tracking-wider shrink-0">
+                                    Slashed
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-[#6B6663] mt-0.5 tabular-nums">
+                                {isSlashingOut ? (
+                                  <span className="font-semibold text-[#B91C1C]">
+                                    100% transferred out → {shortTreasury}
+                                  </span>
+                                ) : (
+                                  <>
+                                    {fmt.full} ({dayText}) · {stake.frequencyLabel || 'Daily'} ·{' '}
+                                    {stake.token}{' '}
+                                    {stake.protocolFeePct === 0 ? '(0% fee)' : '(SPL)'}
+                                  </>
+                                )}
+                              </div>
+                              {stake.motivationNote && !isSlashingOut && (
+                                <p className="text-xs text-[#877F7A] mt-1 line-clamp-1">
+                                  “{stake.motivationNote}”
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0 tabular-nums relative">
+                            {isSlashingOut && (
+                              <div
+                                aria-live="polite"
+                                className="actake-funds-outflow-chip absolute -top-2 right-0 z-10 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#DC2626] text-white text-[11px] font-extrabold shadow-[0_8px_18px_rgba(220,38,38,0.35)] whitespace-nowrap"
+                              >
+                                <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
+                                <span>
+                                  -${stake.amount.toFixed(2)} {stake.token}
+                                </span>
+                              </div>
+                            )}
+                            <div
+                              className={`font-display text-lg font-extrabold transition-colors duration-300 ${
+                                isSlashingOut ? 'text-[#DC2626] line-through opacity-75' : 'text-[#111114]'
+                              }`}
+                            >
+                              {isSlashingOut ? `-$${stake.amount.toFixed(2)}` : `$${stake.amount.toFixed(2)}`}
+                            </div>
+                            <div
+                              className={`text-xs font-semibold transition-colors duration-300 ${
+                                isSlashingOut ? 'text-[#B91C1C]' : 'text-[#16A34A]'
+                              }`}
+                            >
+                              {isSlashingOut
+                                ? 'Sent to Treasury'
+                                : `+$${stake.slashedBonusEstimate.toFixed(2)} split`}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-xs tabular-nums">
+                            <span
+                              className={
+                                isSlashingOut
+                                  ? 'text-[#DC2626] font-semibold inline-flex items-center gap-1'
+                                  : cd.isUrgent
+                                    ? 'text-[#F16A2E] font-semibold'
+                                    : 'text-[#6B6663]'
+                              }
+                            >
+                              {isSlashingOut ? (
+                                <>
+                                  <ArrowUpRight className="w-3.5 h-3.5" />
+                                  <span>Draining escrow balance to Treasury...</span>
+                                </>
+                              ) : (
+                                `Deadline in ${cd.compact}`
+                              )}
+                            </span>
+                            <span className={isSlashingOut ? 'text-[#DC2626] font-bold' : 'text-[#6B6663]'}>
+                              {isSlashingOut ? '$0.00 left' : `${progressPct}% elapsed`}
+                            </span>
+                          </div>
+                          <div
+                            className={`h-2 w-full rounded-full overflow-hidden ${
+                              isSlashingOut ? 'bg-[#FEE2E2]' : 'bg-[#F7ECE6]'
+                            }`}
+                          >
+                            <div
+                              className={`h-full rounded-full ${
+                                isSlashingOut
+                                  ? 'w-full bg-gradient-to-r from-[#EF4444] to-[#B91C1C] actake-bar-drain'
+                                  : 'bg-gradient-to-r from-[#F16A2E] to-[#FF9B6B]'
+                              }`}
+                              style={isSlashingOut ? undefined : { width: `${progressPct}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {isSlashingOut ? (
+                          <div className="relative overflow-hidden rounded-2xl bg-[#FEE2E2]/80 border border-[#FECACA] px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs text-[#991B1B] font-semibold">
+                            <span
+                              aria-hidden="true"
+                              className="actake-transfer-sweep pointer-events-none absolute inset-y-0 left-0 w-1/2 bg-gradient-to-r from-transparent via-white/45 to-transparent"
+                            />
+                            <span className="relative inline-flex items-center gap-1.5 truncate">
+                              <ArrowUpRight className="w-3.5 h-3.5 text-[#DC2626] shrink-0" />
+                              <span className="truncate">
+                                Funds routed away from your account → {shortTreasury}
+                              </span>
+                            </span>
+                            <span className="relative font-mono text-[11px] font-bold text-[#DC2626] shrink-0 tabular-nums">
+                              -${stake.amount.toFixed(2)} {stake.token}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#F6EFEA]">
+                            <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+                              <span className="inline-flex items-center gap-1.5 text-xs text-[#6B6663] truncate">
+                                <Volume2 className="w-3.5 h-3.5 text-[#F16A2E] shrink-0" />
+                                <span className="truncate">AI proof unlocks at {fmt.full}</span>
+                              </span>
+                              {stake.paidVia === 'pollar' && (
+                                <span className="text-[11px] font-bold text-[#F16A2E] whitespace-nowrap shrink-0">
+                                  Pollar Paid
+                                </span>
+                              )}
+                              {stake.explorerUrl && (
+                                <a
+                                  href={stake.explorerUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#16A34A] hover:underline whitespace-nowrap shrink-0"
+                                >
+                                  <span>Devnet Tx</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {onSlashPersonalStake && (
+                                <button
+                                  type="button"
+                                  disabled={slashingStakeId === stake.id}
+                                  onClick={() => setPendingForfeitStake(stake)}
+                                  className="min-h-[40px] px-3 py-1.5 rounded-full border border-[#F3DDD5] hover:border-[#DC2626] text-[#877F7A] hover:text-[#DC2626] text-xs font-semibold transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
+                                >
+                                  {slashingStakeId === stake.id ? 'Slashing...' : 'Forfeit'}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => onTriggerTestAlarm(stake)}
+                                className="min-h-[40px] px-4 py-1.5 rounded-full bg-[#FFF2EA] hover:bg-[#F16A2E] text-[#F16A2E] hover:text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0"
+                              >
+                                Test Alarm
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
+
+          <ConfirmDialog
+            open={Boolean(pendingForfeitStake)}
+            title="Forfeit Personal Stake to Treasury?"
+            description={
+              pendingForfeitStake
+                ? `Marking "${pendingForfeitStake.categoryName}" as missed routes 100% of $${pendingForfeitStake.amount.toFixed(2)} ${pendingForfeitStake.token} directly to the Actake Fee Treasury${
+                    treasuryConfig?.treasuryWallet
+                      ? ` (${treasuryConfig.treasuryWallet.slice(0, 6)}...${treasuryConfig.treasuryWallet.slice(-4)})`
+                      : ''
+                  } and logs a slashed receipt.`
+                : ''
+            }
+            confirmLabel="Slash 100% to Treasury"
+            cancelLabel="Keep Stake Active"
+            destructive
+            onCancel={() => setPendingForfeitStake(null)}
+            onConfirm={() => {
+              const target = pendingForfeitStake;
+              setPendingForfeitStake(null);
+              if (target && onSlashPersonalStake) {
+                void onSlashPersonalStake(target);
+              }
+            }}
+          />
         </div>
 
         {/* Right Column: Native Escrow Protection Card (Replaces 3D Vault) + Live Community Pulse */}
@@ -779,9 +1000,30 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
 
             <div className="grid grid-cols-2 gap-2.5 tabular-nums">
-              <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-3.5">
-                <div className="text-[11px] font-semibold text-[#6B6663]">Locked Principal</div>
-                <div className="font-display text-xl font-extrabold text-[#111114] mt-0.5">
+              <div
+                className={`rounded-2xl border p-3.5 transition-colors duration-300 relative ${
+                  recentSlashDebit
+                    ? 'bg-[#FEF2F2] border-[#FCA5A5]'
+                    : 'bg-[#FFF8F4] border-[#F2E3DA]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <div className="text-[11px] font-semibold text-[#6B6663]">Locked Principal</div>
+                  {recentSlashDebit && (
+                    <span
+                      key={recentSlashDebit.id}
+                      className="actake-debit-badge inline-flex items-center gap-0.5 text-[10px] font-extrabold text-[#DC2626] whitespace-nowrap"
+                    >
+                      <ArrowUpRight className="w-3 h-3" />
+                      -${recentSlashDebit.amount.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+                <div
+                  className={`font-display text-xl font-extrabold mt-0.5 transition-colors duration-300 ${
+                    recentSlashDebit ? 'text-[#B91C1C]' : 'text-[#111114]'
+                  }`}
+                >
                   ${totalLockedUsd.toFixed(2)}
                 </div>
                 <div className="text-[11px] text-[#877F7A] mt-0.5">
