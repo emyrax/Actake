@@ -343,20 +343,34 @@ export const ActakeLandingPage: React.FC<ActakeLandingPageProps> = ({
               Connect in seconds with Pollar, Solana Seeker MWA, or your browser vault and lock in
               your first accountability routine today.
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-3.5">
+            <div className="flex flex-wrap items-center justify-center gap-3.5 pt-1">
               <button
                 type="button"
                 onClick={() => setConnectOpen(true)}
-                className="min-h-[50px] px-6 rounded-full bg-[#111318] hover:bg-[#1E222B] text-white text-[14px] font-semibold inline-flex items-center gap-2.5 shadow-lg cursor-pointer"
+                className="actake-orange-cta min-h-[50px] px-7 rounded-full text-white text-[14.5px] font-semibold inline-flex items-center gap-2 cursor-pointer"
               >
+                <span>Try Web App</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setConnectOpen(true)}
+                className="relative min-h-[50px] px-6 rounded-full bg-[#111318] hover:bg-[#1E222B] text-white text-[14px] font-semibold inline-flex items-center gap-2.5 shadow-lg cursor-pointer"
+              >
+                <span className="absolute -top-2.5 right-3.5 rounded-full bg-[#FF7A00] text-white text-[9.5px] font-extrabold uppercase tracking-[0.06em] px-2 py-0.5 leading-none shadow-sm ring-2 ring-white/95">
+                  Coming Soon
+                </span>
                 <AppleIcon className="w-[18px] h-[18px]" />
                 <span>Download on App Store</span>
               </button>
               <button
                 type="button"
                 onClick={() => setConnectOpen(true)}
-                className="min-h-[50px] px-6 rounded-full bg-white hover:bg-[#FFFBF7] text-[#111318] text-[14px] font-semibold inline-flex items-center gap-2.5 shadow-md cursor-pointer"
+                className="relative min-h-[50px] px-6 rounded-full bg-white hover:bg-[#FFFBF7] text-[#111318] text-[14px] font-semibold inline-flex items-center gap-2.5 shadow-md cursor-pointer"
               >
+                <span className="absolute -top-2.5 right-3.5 rounded-full bg-[#111318] text-white text-[9.5px] font-extrabold uppercase tracking-[0.06em] px-2 py-0.5 leading-none shadow-sm ring-2 ring-white">
+                  Coming Soon
+                </span>
                 <GooglePlayIcon className="w-[18px] h-[18px]" />
                 <span>Get it on Google Play</span>
               </button>

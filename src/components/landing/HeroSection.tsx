@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play } from 'lucide-react';
+import { ArrowRight, Play } from 'lucide-react';
 import morningFocusImg from '../../assets/images/morning_focus_card_1795735509652.jpg';
 import eveningCheckinImg from '../../assets/images/evening_checkin_card_1795735509813.jpg';
 import { AppleIcon, GooglePlayIcon } from './BrandIcons';
@@ -55,13 +55,25 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenConnect }) => {
           mindful routines built for real consistency.
         </p>
 
-        {/* Store Download Buttons */}
-        <div className="flex flex-wrap items-center justify-center gap-3.5">
+        {/* Primary Try Web App CTA + Coming Soon Store Buttons */}
+        <div className="flex flex-wrap items-center justify-center gap-3.5 pt-1">
           <button
             type="button"
             onClick={onOpenConnect}
-            className="min-h-[50px] px-6 rounded-full bg-[#111318] hover:bg-[#1E222B] text-white text-[14px] font-semibold inline-flex items-center justify-center gap-2.5 shadow-[0_12px_26px_rgba(17,19,24,0.22)] transition-all active:scale-[0.98] cursor-pointer"
+            className="actake-orange-cta min-h-[50px] px-7 rounded-full text-white text-[14.5px] font-semibold inline-flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
           >
+            <span>Try Web App</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenConnect}
+            className="relative min-h-[50px] px-6 rounded-full bg-[#111318] hover:bg-[#1E222B] text-white text-[14px] font-semibold inline-flex items-center justify-center gap-2.5 shadow-[0_12px_26px_rgba(17,19,24,0.22)] transition-all active:scale-[0.98] cursor-pointer"
+          >
+            <span className="absolute -top-2.5 right-3.5 rounded-full bg-[#FF7A00] text-white text-[9.5px] font-extrabold uppercase tracking-[0.06em] px-2 py-0.5 leading-none shadow-sm ring-2 ring-white/95">
+              Coming Soon
+            </span>
             <AppleIcon className="w-[18px] h-[18px] -mt-0.5" />
             <span>Download on App Store</span>
           </button>
@@ -69,8 +81,11 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenConnect }) => {
           <button
             type="button"
             onClick={onOpenConnect}
-            className="min-h-[50px] px-6 rounded-full bg-white hover:bg-[#FFFBF7] text-[#111318] text-[14px] font-semibold inline-flex items-center justify-center gap-2.5 shadow-[0_12px_26px_rgba(15,23,42,0.08)] border border-white/90 transition-all active:scale-[0.98] cursor-pointer"
+            className="relative min-h-[50px] px-6 rounded-full bg-white hover:bg-[#FFFBF7] text-[#111318] text-[14px] font-semibold inline-flex items-center justify-center gap-2.5 shadow-[0_12px_26px_rgba(15,23,42,0.08)] border border-white/90 transition-all active:scale-[0.98] cursor-pointer"
           >
+            <span className="absolute -top-2.5 right-3.5 rounded-full bg-[#111318] text-white text-[9.5px] font-extrabold uppercase tracking-[0.06em] px-2 py-0.5 leading-none shadow-sm ring-2 ring-white">
+              Coming Soon
+            </span>
             <GooglePlayIcon className="w-[18px] h-[18px]" />
             <span>Get it on Google Play</span>
           </button>
