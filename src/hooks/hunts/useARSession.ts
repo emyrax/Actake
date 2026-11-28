@@ -11,19 +11,25 @@ export interface ArSessionState {
 }
 
 interface UseArSessionParams {
-  isCameraActive: boolean;
+  /** Primary opt-in hardware gate shared with useHighAccuracyGPS & useCompassHeading */
+  isSensorActive: boolean;
+  /** Optional sub-gate (e.g. only open rear camera when user opens AR Camera viewfinder) */
+  isCameraActive?: boolean;
   /** When true, skips real rear camera prompt and renders the spatial studio backdrop */
   preferSpatialBackdrop?: boolean;
 }
 
 /**
  * Strictly opt-in AR session hook.
- * Checks `navigator.xr?.isSessionSupported('immersive-ar')` and opens a live rear-camera
- * `<video>` passthrough (`facingMode: 'environment'`) ONLY when `isCameraActive === true`.
- * Falls back cleanly to a spatial backdrop on desktop or when camera access is declined.
+ * NEVER triggers WebXR or camera permissions unless `isSensorActive === true`
+ * (and `isCameraActive !== false`).
+ * Checks `navigator.xr?.isSessionSupported('immersive-ar')` (WebXR ARCore on Seeker/Android)
+ * and falls back cleanly to a live rear-camera `<video>` passthrough (`facingMode: 'environment'`)
+ * or spatial AR studio backdrop when camera access is unavailable.
  */
 export function useARSession({
-  isCameraActive,
+  isSensorActive,
+  isCameraActive = true,
   preferSpatialBackdrop = false,
 }: UseArSessionParams): ArSessionState {
   const [webxrSupported, setWebxrSupported] = useState(false);
@@ -32,8 +38,10 @@ export function useARSession({
   const [initializing, setInitializing] = useState(false);
   const [mode, setMode] = useState<ArSessionMode>('idle');
 
+  const active = isSensorActive && isCameraActive;
+
   useEffect(() => {
-    if (!isCameraActive) {
+    if (!active) {
       setMode('idle');
       setCameraError(null);
       setInitializing(false);
@@ -109,8 +117,8 @@ export function useARSession({
         if (cancelled) return;
         const msg =
           err instanceof Error && /NotAllowedError|Permission/i.test(err.name || err.message)
-            ? 'Camera access declined — rendering 3D chest over spatial AR backdrop.'
-            : 'Rear camera unavailable on this device — rendering 3D chest over spatial AR backdrop.';
+            ? 'Camera access declined — rendering 3D AR asset over spatial studio backdrop.'
+            : 'Rear camera unavailable on this device — rendering 3D AR asset over spatial backdrop.';
         setCameraError(msg);
         setMode('spatial-backdrop');
         setInitializing(false);
@@ -131,7 +139,7 @@ export function useARSession({
         return null;
       });
     };
-  }, [isCameraActive, preferSpatialBackdrop]);
+  }, [active, preferSpatialBackdrop]);
 
   return {
     mode,

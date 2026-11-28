@@ -10,12 +10,14 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  Compass,
   Copy,
   Dumbbell,
   ExternalLink,
   Flame,
   Loader2,
   Lock,
+  MapPin,
   Plus,
   QrCode,
   RefreshCw,
@@ -49,6 +51,7 @@ import {
   isSameDayAlarm,
 } from '../utils/timeUtils';
 import { ALARM_SOUNDS } from '../utils/alarmAudio';
+import geodropsArVisual from '../assets/images/geodrops_ar_hunt_visual_1795864407970.jpg';
 import { MascotDisplay } from './MascotDisplay';
 import { ScrollableCalendarStrip } from './ScrollableCalendarStrip';
 import {
@@ -79,6 +82,7 @@ interface HomeViewProps {
   onRetryGlobalActivity?: () => void;
   onRefreshDevnet: () => void;
   onOpenMissions: () => void;
+  onOpenHunts?: () => void;
   onOpenAlarmSettings: () => void;
   onOpenPollarFund: () => void;
   onOpenWalletSheet: () => void;
@@ -179,6 +183,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onRetryGlobalActivity,
   onRefreshDevnet,
   onOpenMissions,
+  onOpenHunts,
   onOpenAlarmSettings,
   onOpenPollarFund,
   onOpenWalletSheet,
@@ -1541,6 +1546,48 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Visual GeoDrops AR Scavenger Hunts & Brand 3D Drops Spotlight */}
+          {onOpenHunts && (
+            <div className="relative overflow-hidden rounded-[26px] bg-[#141519] text-white border border-[#2A2624] shadow-[0_14px_32px_rgba(17,17,20,0.16)]">
+              <div className="relative h-36 w-full overflow-hidden">
+                <img
+                  src={geodropsArVisual}
+                  alt="GeoDrops AR Scavenger Hunt floating 3D drop outdoors"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#141519] via-[#141519]/40 to-transparent" />
+                <div className="absolute bottom-2.5 left-4 right-4 flex items-center justify-between gap-2 text-[11px] font-semibold text-[#F4976C]">
+                  <span className="inline-flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>Full-Screen AR Map · 🤖 Voice AI Scout</span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-4 pt-2 space-y-3">
+                <div>
+                  <h3 className="font-display text-base font-extrabold text-white">
+                    GeoDrops AR &amp; Brand 3D Drops
+                  </h3>
+                  <p className="text-xs text-white/75 mt-0.5 leading-relaxed">
+                    Hunt real-world 3D drops on a full-screen map with spoken AI tips—or launch a
+                    sponsored brand hunt using 3D Depth Images, AI-to-3D sculptures, or .GLB models.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onOpenHunts}
+                  className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <Compass className="w-4 h-4" />
+                  <span>Explore GeoDrops Map</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Live Community Pulse with Skeleton, Error Retry, and Empty State */}
           {globalActivityLoading && !globalActivity ? (

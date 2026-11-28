@@ -1778,6 +1778,7 @@ export default function App() {
                 onRetryGlobalActivity={() => void refreshGlobalActivity()}
                 onRefreshDevnet={() => void syncDevnet(wallet.publicKey, true)}
                 onOpenMissions={() => setActiveTab('missions')}
+                onOpenHunts={() => setActiveTab('hunts')}
                 onOpenAlarmSettings={() => setAlarmSettingsOpen(true)}
                 onOpenPollarFund={handleOpenPollarFund}
                 onOpenWalletSheet={() => setWalletSheetOpen(true)}

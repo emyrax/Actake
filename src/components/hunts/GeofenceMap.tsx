@@ -18,12 +18,16 @@ interface GeofenceMapProps {
   interactionMode?: 'readonly' | 'pin' | 'polygon';
   onMapClick?: (coord: GeoCoordinate) => void;
   heightClassName?: string;
+  /** 'card' for embedded pickers, 'fullscreen' for edge-to-edge hunt navigation */
+  variant?: 'card' | 'fullscreen';
+  /** Increment to smoothly recenter/fit the map onto the hunt target (and user if present) */
+  recenterSignal?: number;
 }
 
 /**
  * Interactive real-world Leaflet OpenStreetMap component for:
  * 1. Mapping real-world geofence areas (circle radius or custom polygon boundary) during Create Hunt.
- * 2. Tracking real-time GPS location & accuracy ring against the mapped geofence during an active hunt.
+ * 2. Full-screen real-time GPS location & geofence navigation during an active hunt.
  */
 export const GeofenceMap: React.FC<GeofenceMapProps> = ({
   center,
@@ -36,6 +40,8 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
   interactionMode = 'readonly',
   onMapClick,
   heightClassName = 'h-[280px] sm:h-[320px]',
+  variant = 'card',
+  recenterSignal = 0,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -53,14 +59,18 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
 
     const map = L.map(el, {
       center: [center.lat, center.lng],
-      zoom: 17,
-      zoomControl: true,
+      zoom: variant === 'fullscreen' ? 17 : 17,
+      zoomControl: variant !== 'fullscreen',
       attributionControl: true,
     });
 
+    if (variant === 'fullscreen') {
+      L.control.zoom({ position: 'bottomleft' }).addTo(map);
+    }
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
+      attribution: '&copy; OpenStreetMap',
     }).addTo(map);
 
     const overlayGroup = L.layerGroup().addTo(map);
@@ -75,18 +85,26 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
       });
     });
 
-    // Ensure tiles size accurately after modal/tab mount animation
     const resizeTimer = window.setTimeout(() => {
       map.invalidateSize();
-    }, 180);
+    }, 140);
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        map.invalidateSize({ animate: false });
+      });
+      observer.observe(el);
+    }
 
     return () => {
       window.clearTimeout(resizeTimer);
+      observer?.disconnect();
       map.remove();
       mapRef.current = null;
       overlayLayerRef.current = null;
     };
-  }, []);
+  }, [variant]);
 
   // Recenter smoothly when explicit center prop changes significantly
   useEffect(() => {
@@ -98,6 +116,29 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
       map.setView([center.lat, center.lng], Math.max(map.getZoom(), 16), { animate: true });
     }
   }, [center.lat, center.lng]);
+
+  // Explicit recenter button signal (fits both user and target when active, else centers on target)
+  useEffect(() => {
+    if (recenterSignal === 0) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (userLocation && targetPin) {
+      const bounds = L.latLngBounds(
+        [userLocation.lat, userLocation.lng],
+        [targetPin.lat, targetPin.lng]
+      );
+      map.fitBounds(bounds, {
+        padding: [72, 72],
+        maxZoom: 18,
+        animate: true,
+      });
+    } else if (targetPin) {
+      map.setView([targetPin.lat, targetPin.lng], 17, { animate: true });
+    } else {
+      map.setView([center.lat, center.lng], 17, { animate: true });
+    }
+  }, [recenterSignal]);
 
   // Redraw geofence overlays (target circle, custom polygon area, user GPS dot & bearing line)
   useEffect(() => {
@@ -128,7 +169,6 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
         }).addTo(layerGroup);
       }
 
-      // Render numbered corner vertices during editing
       if (interactionMode === 'polygon') {
         polygonPoints.forEach((pt, idx) => {
           L.circleMarker([pt.lat, pt.lng], {
@@ -149,30 +189,30 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
       L.circle([targetPin.lat, targetPin.lng], {
         radius: radiusMeters,
         color: zoneColor,
-        weight: 2,
+        weight: 2.5,
         fillColor: zoneColor,
-        fillOpacity: polygonPoints && polygonPoints.length >= 3 ? 0.08 : 0.2,
-        dashArray: insideGeofence ? undefined : '5 5',
+        fillOpacity: polygonPoints && polygonPoints.length >= 3 ? 0.08 : 0.22,
+        dashArray: insideGeofence ? undefined : '6 6',
       }).addTo(layerGroup);
 
       L.circleMarker([targetPin.lat, targetPin.lng], {
-        radius: 8,
+        radius: 9,
         color: '#FFFFFF',
         weight: 3,
-        fillColor: insideGeofence ? '#16A34A' : '#111114',
+        fillColor: insideGeofence ? '#16A34A' : '#F16A2E',
         fillOpacity: 1,
       })
-        .bindTooltip('GeoDrop Chest', { direction: 'top', offset: [0, -8] })
+        .bindTooltip('GeoDrop Target', { direction: 'top', offset: [0, -10] })
         .addTo(layerGroup);
     }
 
-    // 3. Draw live user GPS position, accuracy ring, and vector line to chest
+    // 3. Draw live user GPS position, accuracy ring, and vector line to target
     if (userLocation) {
       if (userAccuracyMeters && userAccuracyMeters > 0 && userAccuracyMeters < 2000) {
         L.circle([userLocation.lat, userLocation.lng], {
           radius: userAccuracyMeters,
           color: '#2563EB',
-          weight: 1,
+          weight: 1.2,
           fillColor: '#3B82F6',
           fillOpacity: 0.14,
         }).addTo(layerGroup);
@@ -187,29 +227,34 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
           {
             color: '#111114',
             weight: 2.5,
-            opacity: 0.75,
+            opacity: 0.8,
             dashArray: '6 6',
           }
         ).addTo(layerGroup);
       }
 
       L.circleMarker([userLocation.lat, userLocation.lng], {
-        radius: 7,
+        radius: 7.5,
         color: '#FFFFFF',
         weight: 3,
         fillColor: '#2563EB',
         fillOpacity: 1,
       })
-        .bindTooltip('Your Location', { direction: 'top', offset: [0, -8] })
+        .bindTooltip('You', { direction: 'top', offset: [0, -8] })
         .addTo(layerGroup);
     }
   }, [targetPin, radiusMeters, polygonPoints, userLocation, userAccuracyMeters, insideGeofence, interactionMode]);
+
+  const wrapperClass =
+    variant === 'fullscreen'
+      ? 'w-full h-full bg-[#E8E2DC] relative z-0'
+      : `w-full ${heightClassName} rounded-2xl overflow-hidden border border-[#E6D6CC] bg-[#EFE8E2] relative z-0`;
 
   return (
     <div
       ref={containerRef}
       aria-label="Interactive real-world geofence map"
-      className={`w-full ${heightClassName} rounded-2xl overflow-hidden border border-[#E6D6CC] bg-[#EFE8E2] relative z-0`}
+      className={wrapperClass}
     />
   );
 };

@@ -31,11 +31,19 @@ import {
 } from './src/server/supabaseStore.ts';
 import {
   createGeoHunt,
+  getGeoDropGlbAsset,
   getGeoHuntById,
   joinGeoHunt,
   listPublicGeoHunts,
   recordGeoHuntClaim,
+  storeGeoDropGlbAsset,
 } from './src/server/geoDropsStore.ts';
+import type {
+  GeoDropAi3DBlueprint,
+  GeoDropAi3DPart,
+  GeoDropAiPrimitiveShape,
+  GeoDropArAsset,
+} from './src/types/geodrops.ts';
 import { isPointInsidePolygon } from './src/hooks/hunts/geoMath.ts';
 
 dotenv.config();
@@ -2752,6 +2760,463 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
   // =========================================================================
   // GeoDrops AR Scavenger Hunts API (/api/hunts/*) — Strictly Isolated
   // =========================================================================
+  const ALLOWED_AI_SHAPES = new Set<GeoDropAiPrimitiveShape>([
+    'box',
+    'cylinder',
+    'sphere',
+    'torus',
+    'cone',
+    'capsule',
+    'dodecahedron',
+  ]);
+
+  const sanitizeHexColor = (val: unknown, fallback: string): string => {
+    const s = String(val ?? '').trim();
+    return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toUpperCase() : fallback;
+  };
+
+  const clampNum = (val: unknown, min: number, max: number, fallback: number): number => {
+    const n = Number(val);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  };
+
+  const sanitizeAiBlueprint = (raw: unknown): GeoDropAi3DBlueprint | null => {
+    if (!raw || typeof raw !== 'object') return null;
+    const obj = raw as Record<string, unknown>;
+    const rawParts = Array.isArray(obj.parts) ? obj.parts : [];
+    const parts: GeoDropAi3DPart[] = [];
+
+    for (const item of rawParts.slice(0, 14)) {
+      if (!item || typeof item !== 'object') continue;
+      const p = item as Record<string, unknown>;
+      const shapeCandidate = String(p.shape ?? 'box').toLowerCase() as GeoDropAiPrimitiveShape;
+      const shape: GeoDropAiPrimitiveShape = ALLOWED_AI_SHAPES.has(shapeCandidate)
+        ? shapeCandidate
+        : 'box';
+
+      const posArr = Array.isArray(p.position) ? p.position : [0, 0, 0];
+      const rotArr = Array.isArray(p.rotation) ? p.rotation : [0, 0, 0];
+      const sclArr = Array.isArray(p.scale) ? p.scale : [0.5, 0.5, 0.5];
+
+      parts.push({
+        shape,
+        position: [
+          clampNum(posArr[0], -1.8, 1.8, 0),
+          clampNum(posArr[1], -1.8, 1.8, 0),
+          clampNum(posArr[2], -1.8, 1.8, 0),
+        ],
+        rotation: [
+          clampNum(rotArr[0], -6.284, 6.284, 0),
+          clampNum(rotArr[1], -6.284, 6.284, 0),
+          clampNum(rotArr[2], -6.284, 6.284, 0),
+        ],
+        scale: [
+          clampNum(sclArr[0], 0.08, 2.2, 0.5),
+          clampNum(sclArr[1], 0.08, 2.2, 0.5),
+          clampNum(sclArr[2], 0.08, 2.2, 0.5),
+        ],
+        colorHex: sanitizeHexColor(p.colorHex, '#F16A2E'),
+        metalness: clampNum(p.metalness, 0, 1, 0.45),
+        roughness: clampNum(p.roughness, 0.08, 1, 0.35),
+        emissiveHex: p.emissiveHex ? sanitizeHexColor(p.emissiveHex, '#000000') : undefined,
+        emissiveIntensity:
+          p.emissiveIntensity !== undefined ? clampNum(p.emissiveIntensity, 0, 2.2, 0) : undefined,
+      });
+    }
+
+    if (parts.length < 2) return null;
+
+    const finishRaw = String(obj.finish ?? 'metallic');
+    const finish: GeoDropAi3DBlueprint['finish'] =
+      finishRaw === 'glossy' || finishRaw === 'matte' || finishRaw === 'neon_glass'
+        ? finishRaw
+        : 'metallic';
+
+    return {
+      title: String(obj.title ?? 'Brand 3D Sculpture').trim().slice(0, 64) || 'Brand 3D Sculpture',
+      summary: String(obj.summary ?? 'AI-sculpted 3D AR collectible').trim().slice(0, 180),
+      finish,
+      primaryColorHex: sanitizeHexColor(obj.primaryColorHex, '#18181B'),
+      accentColorHex: sanitizeHexColor(obj.accentColorHex, '#F16A2E'),
+      glowColorHex: sanitizeHexColor(obj.glowColorHex, '#FBBF24'),
+      parts,
+    };
+  };
+
+  const sanitizeImageDataUrl = (raw: unknown): string | undefined => {
+    if (typeof raw !== 'string') return undefined;
+    const trimmed = raw.trim();
+    const match = trimmed.match(/^data:image\/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) return undefined;
+    // Cap decoded image size to <= 4 MB
+    const byteLength = Math.floor((match[2].length * 3) / 4);
+    if (byteLength < 64 || byteLength > 4 * 1024 * 1024) return undefined;
+    return trimmed;
+  };
+
+  const sanitizeGeoDropArAsset = (raw: unknown): GeoDropArAsset | null => {
+    if (!raw || typeof raw !== 'object') return null;
+    const obj = raw as Record<string, unknown>;
+    const kindRaw = String(obj.kind ?? 'chest');
+    const kind: GeoDropArAsset['kind'] =
+      kindRaw === 'image_depth' || kindRaw === 'ai_3d_sculpture' || kindRaw === 'custom_glb'
+        ? kindRaw
+        : 'chest';
+
+    if (kind === 'chest') {
+      return { kind: 'chest' };
+    }
+
+    const brandName = String(obj.brandName ?? '').trim().slice(0, 60) || undefined;
+    const accentHex = obj.accentHex ? sanitizeHexColor(obj.accentHex, '#F16A2E') : undefined;
+    const imageDataUrl = sanitizeImageDataUrl(obj.imageDataUrl);
+    const frameRaw = String(obj.frameStyle ?? 'card');
+    const frameStyle: GeoDropArAsset['frameStyle'] =
+      frameRaw === 'medallion' || frameRaw === 'cutout' ? frameRaw : 'card';
+    const depthStrength = clampNum(obj.depthStrength, 0.15, 1.0, 0.65);
+
+    if (kind === 'image_depth') {
+      if (!imageDataUrl) return null;
+      return {
+        kind: 'image_depth',
+        brandName,
+        imageDataUrl,
+        depthStrength,
+        frameStyle,
+        accentHex,
+      };
+    }
+
+    if (kind === 'ai_3d_sculpture') {
+      const aiBlueprint = sanitizeAiBlueprint(obj.aiBlueprint);
+      if (!aiBlueprint) return null;
+      return {
+        kind: 'ai_3d_sculpture',
+        brandName,
+        imageDataUrl,
+        accentHex: accentHex || aiBlueprint.accentColorHex,
+        aiBlueprint,
+      };
+    }
+
+    // custom_glb: strictly allow only verified same-origin /api/hunts/assets/<24-hex> URLs
+    const urlStr = String(obj.modelAssetUrl ?? '').trim();
+    if (!/^\/api\/hunts\/assets\/[a-f0-9]{24}$/.test(urlStr)) {
+      return null;
+    }
+
+    return {
+      kind: 'custom_glb',
+      brandName,
+      accentHex,
+      modelAssetUrl: urlStr,
+      modelFileName: String(obj.modelFileName ?? 'custom-model.glb').trim().slice(0, 80),
+      modelSizeBytes: clampNum(obj.modelSizeBytes, 1, 10 * 1024 * 1024, 0),
+    };
+  };
+
+  app.post('/api/hunts/ai-to-3d', async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      const safeDataUrl = sanitizeImageDataUrl(body.imageDataUrl);
+      if (!safeDataUrl) {
+        res.status(400).json({
+          error: 'Upload a valid PNG, JPEG, or WebP brand image (up to 4 MB) before converting to 3D.',
+        });
+        return;
+      }
+
+      const brandName = String(body.brandName ?? '').trim().slice(0, 60);
+      const styleHint = String(body.hint ?? '').trim().slice(0, 160);
+      const mimeMatch = safeDataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+      const mimeType = mimeMatch?.[1] || 'image/png';
+      const base64Data = safeDataUrl.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+
+      const ai = getGeminiClient();
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: base64Data,
+              },
+            },
+            {
+              text: `You are a 3D AR collectible sculptor for Solana mobile scavenger hunts.
+Inspect the uploaded brand image${brandName ? ` for "${brandName}"` : ''}${styleHint ? ` (style note: ${styleHint})` : ''}.
+Design a cohesive, iconic volumetric 3D AR sculpture inspired by the object, silhouette, colors, and brand vibe in this image (for example: a sleek trophy pedestal, stylized beverage can, sneaker totem, cosmic emblem relic, geometric mascot statue, or luxury vault).
+Rules:
+1. Extract the exact dominant brand primaryColorHex, accentColorHex, and glowColorHex (#RRGGBB).
+2. Return between 6 and 12 3D parts using ONLY shapes from: box, cylinder, sphere, torus, cone, capsule, dodecahedron.
+3. Position every part harmoniously around the origin [0, 0, 0] with coordinates inside [-1.2, 1.2] and scales inside [0.15, 1.6] so the parts visibly interlock into one recognizable floating 3D sculpture.
+4. Keep the front face (around z = +0.55..0.75) clean so the brand emblem disc can float nicely in front of the core body.
+Return ONLY valid JSON matching the schema.`,
+            },
+          ],
+        },
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              summary: { type: Type.STRING },
+              finish: { type: Type.STRING },
+              primaryColorHex: { type: Type.STRING },
+              accentColorHex: { type: Type.STRING },
+              glowColorHex: { type: Type.STRING },
+              parts: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    shape: { type: Type.STRING },
+                    position: { type: Type.ARRAY, items: { type: Type.NUMBER } },
+                    rotation: { type: Type.ARRAY, items: { type: Type.NUMBER } },
+                    scale: { type: Type.ARRAY, items: { type: Type.NUMBER } },
+                    colorHex: { type: Type.STRING },
+                    metalness: { type: Type.NUMBER },
+                    roughness: { type: Type.NUMBER },
+                    emissiveHex: { type: Type.STRING },
+                    emissiveIntensity: { type: Type.NUMBER },
+                  },
+                  required: ['shape', 'position', 'rotation', 'scale', 'colorHex', 'metalness', 'roughness'],
+                },
+              },
+            },
+            required: [
+              'title',
+              'summary',
+              'finish',
+              'primaryColorHex',
+              'accentColorHex',
+              'glowColorHex',
+              'parts',
+            ],
+          },
+        },
+      });
+
+      const parsed = safeParseModelJson<Record<string, unknown>>(response.text);
+      const blueprint = sanitizeAiBlueprint(parsed);
+      if (!blueprint) {
+        res.status(502).json({
+          error: 'AI could not assemble a valid 3D sculpture from this image. Try again or use 3D Depth Image mode.',
+        });
+        return;
+      }
+
+      res.json({ blueprint, model: 'gemini-4-hydrogen' });
+    } catch (err: unknown) {
+      res.status(502).json({ error: formatGeminiApiError(err) });
+    }
+  });
+
+  app.post('/api/hunts/ai-guide', async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      const userMessage = String(body.userMessage ?? '').trim().slice(0, 600);
+      if (!userMessage) {
+        res.status(400).json({ error: 'Please ask a question or request a hint.' });
+        return;
+      }
+
+      const huntTitle = String(body.huntTitle ?? 'GeoDrop Hunt').trim().slice(0, 80);
+      const landmarkName = String(body.landmarkName ?? 'the landmark').trim().slice(0, 100);
+      const loreHint = String(body.loreHint ?? '').trim().slice(0, 320);
+      const radiusMeters = Number(body.radiusMeters) || 25;
+      const rewardPerChest = Number(body.rewardPerChest) || 0;
+      const tokenSymbol = body.tokenSymbol === 'SKR' ? 'SKR' : 'USDC';
+      const targetLat = Number(body.targetLat);
+      const targetLng = Number(body.targetLng);
+      const distanceMeters =
+        body.distanceMeters !== null &&
+        body.distanceMeters !== undefined &&
+        Number.isFinite(Number(body.distanceMeters))
+          ? Math.max(0, Math.round(Number(body.distanceMeters)))
+          : null;
+      const cardinalDirection = String(body.cardinalDirection ?? '').trim().slice(0, 16);
+      const turnCue = String(body.turnCue ?? '').trim().slice(0, 60);
+      const insideGeofence = Boolean(body.insideGeofence);
+      const experienceMode = String(body.experienceMode ?? 'idle').trim().slice(0, 24);
+      const arAssetKind = String(body.arAssetKind ?? 'chest').trim().slice(0, 32);
+
+      const rawHistory = Array.isArray(body.history) ? body.history : [];
+      const historyLines = rawHistory
+        .slice(-6)
+        .map((item: unknown) => {
+          if (!item || typeof item !== 'object') return null;
+          const row = item as { role?: unknown; text?: unknown };
+          const speaker = row.role === 'assistant' ? 'Scout' : 'Hunter';
+          const text = String(row.text ?? '').trim().slice(0, 300);
+          return text ? `${speaker}: ${text}` : null;
+        })
+        .filter((line: string | null): line is string => Boolean(line));
+
+      const locationSummary =
+        distanceMeters !== null
+          ? insideGeofence
+            ? `Hunter is ALREADY INSIDE the ${radiusMeters}m geofence (${distanceMeters}m from center)!`
+            : `Hunter is currently ${distanceMeters} meters away, heading ${cardinalDirection || 'toward target'} (${turnCue || 'follow map arrow'}).`
+          : experienceMode === 'idle'
+            ? 'Hunter is previewing the full-screen map and has not enabled Live GPS or Indoor Demo yet.'
+            : 'GPS is still locking onto the hunter position.';
+
+      const coordsNote =
+        Number.isFinite(targetLat) && Number.isFinite(targetLng)
+          ? `${targetLat.toFixed(5)}, ${targetLng.toFixed(5)}`
+          : 'marked on map';
+
+      const dropTypeLabel =
+        arAssetKind === 'image_depth'
+          ? '3D sculpted brand drop'
+          : arAssetKind === 'ai_3d_sculpture'
+            ? 'AI-crafted 3D brand monument'
+            : arAssetKind === 'custom_glb'
+              ? 'custom 3D brand drop'
+              : '3D AR treasure chest';
+
+      const ai = getGeminiClient();
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: `${historyLines.length > 0 ? `Recent conversation:\n${historyLines.join('\n')}\n\n` : ''}Hunter asks: "${userMessage}"`,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction: `You are the Actake GeoDrops AI Hunt Scout — a warm, upbeat, street-smart treasure hunt navigator talking directly to an explorer on their phone.
+Current Hunt Context:
+- Title: "${huntTitle}"
+- Landmark: "${landmarkName}" (Coordinates: ${coordsNote})
+- Creator Hint / Lore: "${loreHint || 'Look around the highlighted zone on the map.'}"
+- Geofence Radius: ${radiusMeters} meters
+- Reward: ${rewardPerChest} ${tokenSymbol} per drop (${dropTypeLabel})
+- Live Hunter Status: ${locationSummary}
+
+Rules for your reply:
+1. Speak naturally in 2 to 3 crisp, friendly sentences (max 55 words) because your reply will be read aloud to the hunter.
+2. Give practical tips on how to reach the geofence, use the map/radar/AR camera, or spot the landmark based on the real context above.
+3. If they are still in preview/idle mode, gently mention they can tap "Enable AR & Sensor Mode" to walk live or "Demo" to test indoors.
+4. If they are already inside the geofence, excite them to tap "AR" and tap the floating 3D drop to unlock their reward!
+5. Plain spoken sentences only — NO markdown bolding, NO bullet lists, NO hashtags, NO emojis.`,
+        },
+      });
+
+      const reply = String(response.text ?? '').trim();
+      if (!reply) {
+        res.status(502).json({ error: 'AI Hunt Scout returned an empty response. Please try again.' });
+        return;
+      }
+
+      res.json({ reply, model: 'gemini-4-hydrogen' });
+    } catch (err: unknown) {
+      res.status(502).json({ error: formatGeminiApiError(err) });
+    }
+  });
+
+  app.post('/api/hunts/ai-guide/speak', async (req, res) => {
+    try {
+      const text = String(req.body?.text ?? '').trim().slice(0, 500);
+      if (!text) {
+        res.status(400).json({ error: 'Missing text to speak.' });
+        return;
+      }
+
+      const ai = getGeminiClient();
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash-lite-tts',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text,
+                speechMetadata: {
+                  style: 'Warm, upbeat, friendly outdoor treasure hunt guide',
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Kore' },
+            },
+          },
+        },
+      });
+
+      const audioBase64 =
+        response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (!audioBase64) {
+        res.status(502).json({ error: 'Voice synthesizer did not return audio.' });
+        return;
+      }
+
+      res.json({
+        audioBase64,
+        mimeType: 'audio/wav',
+        model: 'gemini-3.8-flash-lite-tts',
+      });
+    } catch (err: unknown) {
+      res.status(502).json({ error: formatGeminiApiError(err) });
+    }
+  });
+
+  app.post('/api/hunts/assets/glb', (req, res) => {
+    try {
+      const body = req.body ?? {};
+      const fileName = String(body.fileName ?? 'brand-model.glb').trim().slice(0, 80);
+      const base64Data = String(body.base64Data ?? '').trim();
+
+      if (!base64Data) {
+        res.status(400).json({ error: 'Missing .glb file payload.' });
+        return;
+      }
+
+      const cleanedBase64 = base64Data.replace(/^data:[^;]+;base64,/i, '');
+      const buffer = Buffer.from(cleanedBase64, 'base64');
+
+      if (buffer.length < 20 || buffer.length > 10 * 1024 * 1024) {
+        res.status(400).json({ error: 'Custom .glb model must be between 20 bytes and 10 MB.' });
+        return;
+      }
+
+      // Strictly verify binary glTF 2.0 magic header: 0x67 0x6C 0x54 0x46 ("glTF") and version === 2
+      const magic = buffer.toString('ascii', 0, 4);
+      const version = buffer.readUInt32LE(4);
+      if (magic !== 'glTF' || version !== 2) {
+        res.status(400).json({
+          error: 'Invalid 3D model file. Please upload a valid binary glTF 2.0 (.glb) file.',
+        });
+        return;
+      }
+
+      const saved = storeGeoDropGlbAsset({ fileName, buffer });
+      res.status(201).json(saved);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to upload custom .glb model.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get('/api/hunts/assets/:assetId', (req, res) => {
+    const assetId = String(req.params.assetId || '').trim();
+    const asset = getGeoDropGlbAsset(assetId);
+    if (!asset) {
+      res.status(404).json({ error: '3D model asset not found or expired.' });
+      return;
+    }
+    res.setHeader('Content-Type', 'model/gltf-binary');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(asset.buffer);
+  });
+
   app.get('/api/hunts', async (_req, res) => {
     try {
       const result = await listPublicGeoHunts();
@@ -2846,6 +3311,8 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
               }))
           : null;
 
+      const arAsset = sanitizeGeoDropArAsset(body.arAsset);
+
       const created = await createGeoHunt({
         title,
         landmarkName,
@@ -2862,6 +3329,7 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
         targetLng,
         radiusMeters,
         geofencePolygon: geofencePolygon && geofencePolygon.length >= 3 ? geofencePolygon : null,
+        arAsset,
         isPublic: true,
       });
 

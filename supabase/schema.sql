@@ -163,9 +163,12 @@ create table if not exists public.geo_hunts (
   target_lng double precision not null,
   radius_meters integer not null check (radius_meters in (15, 25, 50)) default 25,
   geofence_polygon jsonb,
+  ar_asset jsonb,
   is_public boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+alter table public.geo_hunts add column if not exists ar_asset jsonb;
 
 create index if not exists idx_geo_hunts_created_at on public.geo_hunts (created_at desc);
 create index if not exists idx_geo_hunts_public on public.geo_hunts (is_public);

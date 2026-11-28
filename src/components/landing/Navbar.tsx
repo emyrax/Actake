@@ -8,8 +8,8 @@ interface NavbarProps {
 
 const NAV_LINKS = [
   { label: 'Features', href: '#features' },
+  { label: 'GeoDrops AR', href: '#geodrops-ar' },
   { label: 'Why Choose Us', href: '#why-choose-us' },
-  { label: 'App Preview', href: '#app-preview' },
   { label: 'User Stories', href: '#user-stories' },
   { label: 'FAQ', href: '#faq' },
 ];

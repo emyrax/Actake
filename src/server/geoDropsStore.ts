@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import type {
   CreateGeoHuntPayload,
   GeoCoordinate,
+  GeoDropArAsset,
   GeoDropRadiusMeters,
   GeoDropTokenSymbol,
   GeoHuntRecord,
@@ -29,6 +30,56 @@ const SEED_ESCROW =
   '9xActakeEscrowVaultDevnet1111111111111111111';
 
 const memoryHunts = new Map<string, GeoHuntRecord>();
+
+interface StoredGlbBinary {
+  id: string;
+  fileName: string;
+  buffer: Buffer;
+  sizeBytes: number;
+  createdAt: number;
+}
+
+const MAX_STORED_GLBS = 24;
+const glbAssetStore = new Map<string, StoredGlbBinary>();
+
+export function storeGeoDropGlbAsset(params: {
+  fileName: string;
+  buffer: Buffer;
+}): {
+  assetId: string;
+  modelAssetUrl: string;
+  fileName: string;
+  sizeBytes: number;
+} {
+  // Evict oldest entry if cache is at capacity
+  if (glbAssetStore.size >= MAX_STORED_GLBS) {
+    const oldestKey = glbAssetStore.keys().next().value;
+    if (oldestKey) {
+      glbAssetStore.delete(oldestKey);
+    }
+  }
+  const assetId = crypto.randomBytes(12).toString('hex');
+  const safeName = params.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'brand-model.glb';
+  glbAssetStore.set(assetId, {
+    id: assetId,
+    fileName: safeName,
+    buffer: params.buffer,
+    sizeBytes: params.buffer.length,
+    createdAt: Date.now(),
+  });
+
+  return {
+    assetId,
+    modelAssetUrl: `/api/hunts/assets/${assetId}`,
+    fileName: safeName,
+    sizeBytes: params.buffer.length,
+  };
+}
+
+export function getGeoDropGlbAsset(assetId: string): StoredGlbBinary | null {
+  if (!/^[a-f0-9]{24}$/.test(assetId)) return null;
+  return glbAssetStore.get(assetId) || null;
+}
 
 function seedInitialGeoHunts(): void {
   if (memoryHunts.size > 0) return;
@@ -177,6 +228,7 @@ interface SupabaseGeoHuntRow {
   target_lng: number;
   radius_meters: GeoDropRadiusMeters;
   geofence_polygon: GeoCoordinate[] | null;
+  ar_asset?: GeoDropArAsset | null;
   is_public: boolean;
   created_at: string;
 }
@@ -214,6 +266,7 @@ function hydrateRow(
     radiusMeters:
       row.radius_meters === 15 || row.radius_meters === 50 ? row.radius_meters : 25,
     geofencePolygon: normalizePolygon(row.geofence_polygon),
+    arAsset: row.ar_asset ?? null,
     isPublic: Boolean(row.is_public),
     participants,
     claimedBy,
@@ -323,6 +376,7 @@ export async function createGeoHunt(input: CreateGeoHuntPayload): Promise<{
     targetLng: Number(input.targetLng.toFixed(6)),
     radiusMeters: input.radiusMeters,
     geofencePolygon: polygon,
+    arAsset: input.arAsset ?? null,
     isPublic: input.isPublic !== false,
     participants: [input.creatorWallet.trim()],
     claimedBy: [],
@@ -351,6 +405,7 @@ export async function createGeoHunt(input: CreateGeoHuntPayload): Promise<{
         target_lng: record.targetLng,
         radius_meters: record.radiusMeters,
         geofence_polygon: record.geofencePolygon,
+        ar_asset: record.arAsset,
         is_public: record.isPublic,
         created_at: record.createdAt,
       });

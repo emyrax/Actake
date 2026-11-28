@@ -16,12 +16,14 @@ import {
 } from 'lucide-react';
 import {
   GeoCoordinate,
+  GeoDropArAsset,
   GeoDropRadiusMeters,
   GeoDropTokenSymbol,
   GeoHuntRecord,
 } from '../../types/geodrops';
 import { computePolygonCentroid } from '../../hooks/hunts/geoMath';
 import { GeofenceMap } from './GeofenceMap';
+import { BrandArStudio } from './BrandArStudio';
 
 export interface FundHuntEscrowResult {
   signature: string;
@@ -71,10 +73,11 @@ export const CreateHuntModal: React.FC<CreateHuntModalProps> = ({
   const [locatingGps, setLocatingGps] = useState(false);
   const [mapNotice, setMapNotice] = useState<string | null>(null);
 
-  // Step 2: Funding & Rewards
+  // Step 2: Funding, Rewards & Brand AR 3D Studio
   const [tokenSymbol, setTokenSymbol] = useState<GeoDropTokenSymbol>('USDC');
   const [totalPoolInput, setTotalPoolInput] = useState('20');
   const [totalChestsInput, setTotalChestsInput] = useState('5');
+  const [arAsset, setArAsset] = useState<GeoDropArAsset>({ kind: 'chest' });
 
   // Step 3: On-Chain Escrow Execution
   const [submitting, setSubmitting] = useState(false);
@@ -184,7 +187,23 @@ export const CreateHuntModal: React.FC<CreateHuntModalProps> = ({
     targetPin !== null &&
     (mapTool === 'pin' || polygonPoints.length >= 3);
 
-  const canProceedStep2 = totalPoolAmount >= 0.01 && totalChests >= 1 && totalChests <= 50;
+  const arAssetReady =
+    arAsset.kind === 'chest' ||
+    (arAsset.kind === 'image_depth' && Boolean(arAsset.imageDataUrl)) ||
+    (arAsset.kind === 'ai_3d_sculpture' && Boolean(arAsset.aiBlueprint)) ||
+    (arAsset.kind === 'custom_glb' && Boolean(arAsset.modelAssetUrl));
+
+  const arAssetSummaryLabel =
+    arAsset.kind === 'image_depth'
+      ? `3D Depth Brand Image (${arAsset.frameStyle || 'card'})`
+      : arAsset.kind === 'ai_3d_sculpture'
+        ? `AI 3D Sculpture (${arAsset.aiBlueprint?.title || 'Custom'})`
+        : arAsset.kind === 'custom_glb'
+          ? `Custom .GLB (${arAsset.modelFileName || '3D Model'})`
+          : 'Classic 3D Treasure Chest';
+
+  const canProceedStep2 =
+    totalPoolAmount >= 0.01 && totalChests >= 1 && totalChests <= 50 && arAssetReady;
 
   const handleFundAndPublish = async () => {
     if (!targetPin) return;
@@ -215,6 +234,7 @@ export const CreateHuntModal: React.FC<CreateHuntModalProps> = ({
           targetLng: targetPin.lng,
           radiusMeters,
           geofencePolygon: polygonPoints.length >= 3 ? polygonPoints : null,
+          arAsset,
           isPublic: true,
         }),
       });
@@ -250,7 +270,7 @@ export const CreateHuntModal: React.FC<CreateHuntModalProps> = ({
               {step === 1
                 ? 'Map Real-World Geofence Area'
                 : step === 2
-                  ? 'Funding & Chest Rewards'
+                  ? 'Funding & Brand AR 3D Studio'
                   : 'On-Chain Devnet Escrow'}
             </div>
             <h2 className="font-display text-xl font-extrabold text-[#111114]">
@@ -561,6 +581,20 @@ export const CreateHuntModal: React.FC<CreateHuntModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Brand AR 3D Studio (3D Chest, 3D Depth Image, AI Image -> 3D, Optional .GLB) */}
+              <div className="pt-2 border-t border-[#F1E4DC] space-y-2">
+                <BrandArStudio value={arAsset} tokenSymbol={tokenSymbol} onChange={setArAsset} />
+                {!arAssetReady && (
+                  <div className="text-xs font-medium text-[#B45309] bg-[#FFFBEB] border border-[#FDE68A] rounded-xl px-3.5 py-2.5">
+                    {arAsset.kind === 'image_depth'
+                      ? 'Upload a brand image above (or switch back to 3D Chest) to continue.'
+                      : arAsset.kind === 'ai_3d_sculpture'
+                        ? 'Upload an image and click "Convert Image to 3D with AI" (or switch back to 3D Chest) to continue.'
+                        : 'Upload a .glb 3D model above (or switch back to 3D Chest) to continue.'}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -597,6 +631,10 @@ export const CreateHuntModal: React.FC<CreateHuntModalProps> = ({
                     <span className="tabular-nums">
                       {targetPin?.lat.toFixed(5)}, {targetPin?.lng.toFixed(5)}
                     </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-white/55">AR 3D Drop</span>
+                    <span className="truncate max-w-[220px]">{arAssetSummaryLabel}</span>
                   </div>
                   <div className="flex justify-between gap-2">
                     <span className="text-white/55">Escrow Vault</span>
