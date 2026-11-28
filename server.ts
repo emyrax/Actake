@@ -5,7 +5,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
-import { PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
+import {
+  Ed25519Program,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionInstruction,
+} from '@solana/web3.js';
 import bs58 from 'bs58';
 import {
   checkSupabaseHealth,
@@ -23,6 +29,14 @@ import {
   recordPoolSettlement,
   recordVerifiedCheckin,
 } from './src/server/supabaseStore.ts';
+import {
+  createGeoHunt,
+  getGeoHuntById,
+  joinGeoHunt,
+  listPublicGeoHunts,
+  recordGeoHuntClaim,
+} from './src/server/geoDropsStore.ts';
+import { isPointInsidePolygon } from './src/hooks/hunts/geoMath.ts';
 
 dotenv.config();
 
@@ -73,6 +87,61 @@ function loadOracleKeypair(): {
 }
 
 const oracleKeys = loadOracleKeypair();
+
+function loadGeoDropOracleKeypair(): {
+  privateKey: crypto.KeyObject;
+  publicKey: crypto.KeyObject;
+  publicKeyBytes: Uint8Array;
+  publicKeyHex: string;
+  publicKeyBase58: string;
+} {
+  const rawEnv = process.env.GEODROP_ORACLE_SECRET_KEY?.trim();
+  if (rawEnv) {
+    try {
+      let seedBytes: Buffer | null = null;
+      if (rawEnv.startsWith('[')) {
+        const arr = JSON.parse(rawEnv) as unknown;
+        if (Array.isArray(arr) && arr.length >= 32) {
+          seedBytes = Buffer.from(arr.slice(0, 32).map((n) => Number(n) & 0xff));
+        }
+      } else if (/^[0-9a-fA-F]{64,128}$/.test(rawEnv)) {
+        seedBytes = Buffer.from(rawEnv.slice(0, 64), 'hex');
+      } else {
+        const decoded = bs58.decode(rawEnv);
+        if (decoded.length >= 32) {
+          seedBytes = Buffer.from(decoded.slice(0, 32));
+        }
+      }
+      if (seedBytes && seedBytes.length === 32) {
+        const pkcs8Prefix = Buffer.from('302e020100300506032b657004220420', 'hex');
+        const pkcs8Der = Buffer.concat([pkcs8Prefix, seedBytes]);
+        const privateKey = crypto.createPrivateKey({ key: pkcs8Der, format: 'der', type: 'pkcs8' });
+        const publicKey = crypto.createPublicKey(privateKey);
+        const spkiDer = publicKey.export({ type: 'spki', format: 'der' });
+        const rawPub = Buffer.from(spkiDer).subarray(-32);
+        return {
+          privateKey,
+          publicKey,
+          publicKeyBytes: new Uint8Array(rawPub),
+          publicKeyHex: rawPub.toString('hex'),
+          publicKeyBase58: bs58.encode(rawPub),
+        };
+      }
+    } catch {
+      // Fall through cleanly to the default server Ed25519 oracle keypair
+    }
+  }
+
+  return {
+    privateKey: oracleKeys.privateKey,
+    publicKey: oracleKeys.publicKey,
+    publicKeyBytes: new Uint8Array(Buffer.from(oracleKeys.publicKeyHex, 'hex')),
+    publicKeyHex: oracleKeys.publicKeyHex,
+    publicKeyBase58: oracleKeys.publicKeyBase58,
+  };
+}
+
+const geoDropOracleKeys = loadGeoDropOracleKeypair();
 const airdropCooldownMap = new Map<string, number>();
 
 function getGeminiClient(): GoogleGenAI {
@@ -2677,6 +2746,338 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Devnet airdrop request failed.';
       res.status(502).json({ error: message });
+    }
+  });
+
+  // =========================================================================
+  // GeoDrops AR Scavenger Hunts API (/api/hunts/*) — Strictly Isolated
+  // =========================================================================
+  app.get('/api/hunts', async (_req, res) => {
+    try {
+      const result = await listPublicGeoHunts();
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to load public GeoDrops hunts.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/hunts', async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      const title = String(body.title ?? '').trim().slice(0, 80);
+      const landmarkName = String(body.landmarkName ?? '').trim().slice(0, 100);
+      const loreHint = String(body.loreHint ?? '').trim().slice(0, 320);
+      const creatorWallet = parseValidSolanaAddress(body.creatorWallet);
+      const huntEscrowPubkey =
+        parseValidSolanaAddress(body.huntEscrowPubkey) || resolveTreasuryConfig().escrowWallet;
+      const fundingTxSignature = String(body.fundingTxSignature ?? '').trim().slice(0, 140);
+      const tokenSymbol = body.tokenSymbol === 'SKR' ? 'SKR' : body.tokenSymbol === 'USDC' ? 'USDC' : null;
+      const totalPoolAmount = Number(body.totalPoolAmount);
+      const totalChests = Math.floor(Number(body.totalChests));
+      const targetLat = Number(body.targetLat);
+      const targetLng = Number(body.targetLng);
+      const radiusRaw = Number(body.radiusMeters);
+      const radiusMeters = radiusRaw === 15 || radiusRaw === 50 ? radiusRaw : radiusRaw === 25 ? 25 : null;
+
+      if (!title || title.length < 3) {
+        res.status(400).json({ error: 'Hunt title must be at least 3 characters.' });
+        return;
+      }
+      if (!landmarkName || landmarkName.length < 2) {
+        res.status(400).json({ error: 'Landmark name is required.' });
+        return;
+      }
+      if (!creatorWallet) {
+        res.status(400).json({ error: 'Valid creatorWallet Solana public key is required.' });
+        return;
+      }
+      if (!huntEscrowPubkey) {
+        res.status(400).json({ error: 'Valid huntEscrowPubkey Solana address is required.' });
+        return;
+      }
+      if (!tokenSymbol) {
+        res.status(400).json({ error: 'tokenSymbol must be SKR or USDC.' });
+        return;
+      }
+      if (!Number.isFinite(totalPoolAmount) || totalPoolAmount < 0.01 || totalPoolAmount > 1_000_000) {
+        res.status(400).json({ error: 'totalPoolAmount must be between 0.01 and 1,000,000.' });
+        return;
+      }
+      if (!Number.isFinite(totalChests) || totalChests < 1 || totalChests > 50) {
+        res.status(400).json({ error: 'totalChests must be an integer between 1 and 50.' });
+        return;
+      }
+      if (
+        !Number.isFinite(targetLat) ||
+        targetLat < -90 ||
+        targetLat > 90 ||
+        !Number.isFinite(targetLng) ||
+        targetLng < -180 ||
+        targetLng > 180
+      ) {
+        res.status(400).json({ error: 'Valid targetLat (-90..90) and targetLng (-180..180) are required.' });
+        return;
+      }
+      if (!radiusMeters) {
+        res.status(400).json({ error: 'radiusMeters must be 15, 25, or 50.' });
+        return;
+      }
+
+      const rawPoly = Array.isArray(body.geofencePolygon) ? body.geofencePolygon : null;
+      const geofencePolygon =
+        rawPoly && rawPoly.length >= 3
+          ? rawPoly
+              .slice(0, 20)
+              .filter(
+                (pt: unknown): pt is { lat: number; lng: number } =>
+                  Boolean(pt) &&
+                  typeof pt === 'object' &&
+                  Number.isFinite(Number((pt as { lat?: unknown }).lat)) &&
+                  Number.isFinite(Number((pt as { lng?: unknown }).lng)) &&
+                  Number((pt as { lat: number }).lat) >= -90 &&
+                  Number((pt as { lat: number }).lat) <= 90 &&
+                  Number((pt as { lng: number }).lng) >= -180 &&
+                  Number((pt as { lng: number }).lng) <= 180
+              )
+              .map((pt: { lat: number; lng: number }) => ({
+                lat: Number(pt.lat),
+                lng: Number(pt.lng),
+              }))
+          : null;
+
+      const created = await createGeoHunt({
+        title,
+        landmarkName,
+        loreHint:
+          loreHint ||
+          `Walk inside the ${radiusMeters}m geofence around ${landmarkName} and unlock the AR treasure chest.`,
+        creatorWallet,
+        huntEscrowPubkey,
+        fundingTxSignature,
+        tokenSymbol,
+        totalPoolAmount,
+        totalChests,
+        targetLat,
+        targetLng,
+        radiusMeters,
+        geofencePolygon: geofencePolygon && geofencePolygon.length >= 3 ? geofencePolygon : null,
+        isPublic: true,
+      });
+
+      res.status(201).json(created);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to create GeoDrop hunt.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/hunts/:id/join', async (req, res) => {
+    try {
+      const huntId = String(req.params.id || '').trim();
+      const walletPubkey = parseValidSolanaAddress(req.body?.walletPubkey);
+      if (!huntId) {
+        res.status(400).json({ error: 'Missing hunt ID.' });
+        return;
+      }
+      if (!walletPubkey) {
+        res.status(400).json({ error: 'Valid Solana walletPubkey is required to join a hunt.' });
+        return;
+      }
+
+      const hunt = await joinGeoHunt(huntId, walletPubkey);
+      if (!hunt) {
+        res.status(404).json({ error: 'GeoDrop hunt not found.' });
+        return;
+      }
+      res.json({ hunt });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to join GeoDrop hunt.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/hunts/:id/verify-claim', async (req, res) => {
+    try {
+      const huntId = String(req.params.id || '').trim();
+      const body = req.body ?? {};
+      const hunterPubkey = parseValidSolanaAddress(body.hunterPubkey);
+      const lat = Number(body.lat);
+      const lng = Number(body.lng);
+      const accuracy = Number(body.accuracy);
+      const indoorSimulation = Boolean(body.indoorSimulation);
+
+      if (!huntId) {
+        res.status(400).json({ error: 'Missing hunt ID.' });
+        return;
+      }
+      if (!hunterPubkey) {
+        res.status(400).json({ error: 'Valid hunterPubkey Solana address is required.' });
+        return;
+      }
+      if (
+        !Number.isFinite(lat) ||
+        lat < -90 ||
+        lat > 90 ||
+        !Number.isFinite(lng) ||
+        lng < -180 ||
+        lng > 180
+      ) {
+        res.status(400).json({ error: 'Valid GPS coordinates (lat, lng) are required.' });
+        return;
+      }
+      if (!Number.isFinite(accuracy) || accuracy < 0) {
+        res.status(400).json({ error: 'Valid GPS accuracy in meters is required.' });
+        return;
+      }
+
+      const hunt = await getGeoHuntById(huntId);
+      if (!hunt) {
+        res.status(404).json({ error: 'GeoDrop hunt not found.' });
+        return;
+      }
+      if (hunt.claimsRemaining <= 0) {
+        res.status(409).json({ error: 'All chests for this GeoDrop hunt have been claimed.' });
+        return;
+      }
+      if (hunt.claimedBy.includes(hunterPubkey)) {
+        res.status(409).json({ error: 'This wallet has already unlocked a chest in this hunt.' });
+        return;
+      }
+
+      const distanceMeters = haversineMeters(lat, lng, hunt.targetLat, hunt.targetLng);
+      const insidePolygon =
+        hunt.geofencePolygon && hunt.geofencePolygon.length >= 3
+          ? isPointInsidePolygon(lat, lng, hunt.geofencePolygon)
+          : false;
+      const insideGeofence = distanceMeters <= hunt.radiusMeters || insidePolygon;
+
+      if (!insideGeofence) {
+        res.status(400).json({
+          error: `Outside target geofence (${Math.round(distanceMeters)}m away; move within ${hunt.radiusMeters}m or enter the mapped area).`,
+          distanceMeters: Number(distanceMeters.toFixed(2)),
+          radiusMeters: hunt.radiusMeters,
+        });
+        return;
+      }
+
+      if (!indoorSimulation && accuracy > 25) {
+        res.status(400).json({
+          error: `GPS accuracy too wide (${Math.round(accuracy)}m). Live GeoDrop claims require <= 25m GPS precision.`,
+          accuracyMeters: Math.round(accuracy),
+        });
+        return;
+      }
+
+      const recentBlockhash = await fetchLatestDevnetBlockhashServer();
+      const verifiedAt = Date.now();
+      const attestationPayload = `actake:claim_geodrop:${hunt.id}:${hunterPubkey}:${hunt.rewardPerChest}:${hunt.tokenSymbol}:${lat.toFixed(5)}:${lng.toFixed(5)}:${verifiedAt}`;
+      const messageBuf = Buffer.from(attestationPayload, 'utf8');
+      const signatureBuf = crypto.sign(null, messageBuf, geoDropOracleKeys.privateKey);
+      const oracleSignature = signatureBuf.toString('hex');
+
+      const hunterKey = new PublicKey(hunterPubkey);
+      const tx = new Transaction({
+        feePayer: hunterKey,
+        recentBlockhash: recentBlockhash as NonNullable<Transaction['recentBlockhash']>,
+      });
+
+      // 1. Native Solana Ed25519 Oracle Attestation Verification Instruction
+      tx.add(
+        Ed25519Program.createInstructionWithPublicKey({
+          publicKey: geoDropOracleKeys.publicKeyBytes,
+          message: new Uint8Array(messageBuf),
+          signature: new Uint8Array(signatureBuf),
+        })
+      );
+
+      // 2. Anchor-aligned claim_geodrop Memo Receipt referencing HuntEscrow + verified distance
+      const memoPayload = JSON.stringify({
+        app: 'actake_geodrops',
+        ix: 'claim_geodrop',
+        huntId: hunt.id,
+        escrow: hunt.huntEscrowPubkey,
+        hunter: hunterPubkey,
+        reward: hunt.rewardPerChest,
+        token: hunt.tokenSymbol,
+        distM: Number(distanceMeters.toFixed(1)),
+        accM: Number(accuracy.toFixed(1)),
+        mode: indoorSimulation ? 'indoor_demo' : 'live_gps',
+        ts: verifiedAt,
+      });
+
+      tx.add(
+        new TransactionInstruction({
+          programId: MEMO_PROGRAM_ID,
+          keys: [{ pubkey: hunterKey, isSigner: true, isWritable: false }],
+          data: Buffer.from(memoPayload, 'utf8'),
+        })
+      );
+
+      const serializedBytes = await tx.serialize({
+        requireAllSignatures: false,
+        verifySignatures: false,
+      });
+      const serializedTx = Buffer.from(serializedBytes).toString('base64');
+
+      res.json({
+        serializedTx,
+        oracleSignature,
+        oraclePublicKeyHex: geoDropOracleKeys.publicKeyHex,
+        distanceMeters: Number(distanceMeters.toFixed(2)),
+        insideGeofence: true,
+        rewardPerChest: hunt.rewardPerChest,
+        tokenSymbol: hunt.tokenSymbol,
+        huntEscrowPubkey: hunt.huntEscrowPubkey,
+        indoorSimulation,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to verify GeoDrop claim.';
+      res.status(502).json({ error: message });
+    }
+  });
+
+  app.post('/api/hunts/:id/confirm-claim', async (req, res) => {
+    try {
+      const huntId = String(req.params.id || '').trim();
+      const hunterPubkey = parseValidSolanaAddress(req.body?.hunterPubkey);
+      const claimTxSignature = String(req.body?.claimTxSignature ?? '').trim().slice(0, 140);
+      const oracleSignature = String(req.body?.oracleSignature ?? '').trim().slice(0, 200);
+
+      if (!huntId) {
+        res.status(400).json({ error: 'Missing hunt ID.' });
+        return;
+      }
+      if (!hunterPubkey) {
+        res.status(400).json({ error: 'Valid hunterPubkey is required.' });
+        return;
+      }
+      if (!claimTxSignature) {
+        res.status(400).json({ error: 'Missing confirmed transaction signature.' });
+        return;
+      }
+
+      const result = await recordGeoHuntClaim({
+        huntId,
+        hunterPubkey,
+        claimTxSignature,
+        oracleSignature,
+      });
+
+      if (!result) {
+        res.status(404).json({ error: 'GeoDrop hunt not found.' });
+        return;
+      }
+
+      res.json({
+        hunt: result.hunt,
+        claimTxSignature,
+        explorerUrl: `https://explorer.solana.com/tx/${encodeURIComponent(claimTxSignature)}?cluster=devnet`,
+        solscanUrl: `https://solscan.io/tx/${encodeURIComponent(claimTxSignature)}?cluster=devnet`,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to finalize GeoDrop claim.';
+      res.status(409).json({ error: message });
     }
   });
 

@@ -8,13 +8,13 @@ import {
   Settings,
   Wallet,
 } from 'lucide-react';
+import { Transaction } from '@solana/web3.js';
 import {
   AlarmSettings,
   AppTab,
   CelebrationReceipt,
   DevnetSyncState,
   DiscoveredWalletOption,
-  GeoHuntZone,
   GlobalActivitySummary,
   HabitCategory,
   HistoryEntry,
@@ -26,6 +26,7 @@ import {
   VerificationResult,
   WalletSession,
 } from './types/actake';
+import { VerifyGeoDropClaimResponse } from './types/geodrops';
 import {
   clearWalletSession,
   connectWalletWithSiws,
@@ -42,6 +43,7 @@ import {
   buildDevnetExplorerTxUrl,
   buildDevnetSolscanTxUrl,
   buildSquadBlinkUrl,
+  CONFIGURED_CLIENT_ESCROW_WALLET,
   CONFIGURED_CLIENT_TREASURY_WALLET,
   deriveEscrowPoolPda,
   fetchDevnetTelemetry,
@@ -90,6 +92,11 @@ function readPoolIdFromPathname(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function isHuntsPathname(): boolean {
+  if (typeof window === 'undefined') return false;
+  return /^\/hunts\/?$/i.test(window.location.pathname);
+}
+
 const NAV_ITEMS: Array<{
   id: AppTab;
   label: string;
@@ -121,7 +128,7 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, []);
 
-  const [activeTab, setActiveTab] = useState<AppTab>('home');
+  const [activeTab, setActiveTab] = useState<AppTab>(() => (isHuntsPathname() ? 'hunts' : 'home'));
   const [pendingExplorePreset, setPendingExplorePreset] = useState<ExploreHabitPreset | null>(null);
   const [activeLobbyPoolId, setActiveLobbyPoolId] = useState<string | null>(() =>
     readPoolIdFromPathname()
@@ -310,10 +317,13 @@ export default function App() {
     activePollarAddress,
   ]);
 
-  // Sync browser back/forward navigation for /squad/:poolId URLs
+  // Sync browser back/forward navigation for /squad/:poolId and /hunts URLs
   useEffect(() => {
     const onPopState = () => {
       setActiveLobbyPoolId(readPoolIdFromPathname());
+      if (isHuntsPathname()) {
+        setActiveTab('hunts');
+      }
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -1505,31 +1515,87 @@ export default function App() {
     }
   };
 
-  // Geo-Hunt proof launch (triggers live camera verification with hunt target)
-  const handleLaunchGeoProof = (hunt: GeoHuntZone) => {
-    if (!wallet || !userData) return;
-    const huntStake: StakeCommitment = {
-      id: `hunt-${hunt.id}-${Date.now()}`,
-      categoryId: 'outdoors_grass',
-      categoryName: hunt.title,
-      environmentHint: `${hunt.title} geofence location (${hunt.targetItemHint})`,
-      amount: 15,
-      token: 'USDC',
-      protocolFeePct: 1.5,
-      alarmHour: new Date().getHours(),
-      alarmMinute: new Date().getMinutes(),
-      alarmSound: userData.alarmSettings.selectedSound,
-      escrowPda: `ACTKGeoHunt${hunt.id.slice(-6)}PoolPDA`,
-      joinTxSignature: `GeoHuntJoin${Date.now()}`,
-      recentBlockhash: devnet.blockhash || 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N',
-      createdAt: Date.now(),
-      status: 'ringing',
-      slashedBonusEstimate: 6.5,
-    };
+  // Fund a new GeoDrop AR Scavenger Hunt pool on Solana Devnet directly to Actake Escrow
+  const handleFundGeoDropEscrow = async (params: {
+    token: 'SKR' | 'USDC';
+    totalPoolAmount: number;
+    title: string;
+    landmarkName: string;
+  }) => {
+    if (!wallet) {
+      throw new Error('Connect a Solana wallet before creating a GeoDrop hunt.');
+    }
+    const [recentBlockhash, escrowPda] = await Promise.all([
+      fetchLatestDevnetBlockhash(),
+      deriveEscrowPoolPda(wallet.publicKey, `geodrop-${Date.now()}`),
+    ]);
 
-    setRingingStake(huntStake);
-    setAlarmMuted(true); // Geo-hunt camera proof doesn't blast alarm audio
-    requestChallengeForStake(huntStake);
+    const depositTarget = resolveStakeDepositDestination({
+      poolPda: escrowPda,
+      runtimeEscrowWallet: treasuryConfig?.escrowWallet,
+    });
+
+    if (!depositTarget.safeForRealTokens) {
+      throw new Error(
+        'Set ACTAKE_ESCROW_WALLET (public Solana address) in your environment variables before funding a GeoDrop hunt.'
+      );
+    }
+
+    const transferResult = await executeDirectOnChainTransfer({
+      instructionType: 'join_pool',
+      destination: depositTarget.destination,
+      token: params.token,
+      usdAmount: params.totalPoolAmount,
+      escrowPda,
+      escrowWallet: depositTarget.destination,
+      treasuryWallet: treasuryConfig?.treasuryWallet || CONFIGURED_CLIENT_TREASURY_WALLET,
+      recentBlockhash,
+      metadata: {
+        kind: 'geodrop_hunt',
+        title: params.title.slice(0, 32),
+        landmark: params.landmarkName.slice(0, 32),
+      },
+    });
+
+    void refreshTreasurySummary();
+    if (transferResult.broadcastedOnChain) {
+      void syncDevnet(wallet.publicKey);
+    }
+
+    return {
+      signature: transferResult.signature,
+      escrowWallet: depositTarget.destination,
+      settledAsset: transferResult.settledAsset,
+      settledAmount: transferResult.settledAmount,
+      broadcastedOnChain: transferResult.broadcastedOnChain,
+    };
+  };
+
+  // Sign & broadcast server-built Oracle Ed25519 claim_geodrop transaction via Seeker Seed Vault / connected wallet
+  const handleSignGeoDropClaimTx = async (
+    serializedTxBase64: string,
+    _claimMeta: VerifyGeoDropClaimResponse
+  ) => {
+    if (!wallet) {
+      throw new Error('Connect a Solana wallet to sign and claim this GeoDrop chest.');
+    }
+    const binaryStr = window.atob(serializedTxBase64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    const tx = Transaction.from(bytes);
+    const txResult = await signActakeTransaction(tx, wallet);
+    void refreshTreasurySummary();
+    if (txResult.broadcastedOnChain) {
+      void syncDevnet(wallet.publicKey);
+    }
+    return {
+      signature: txResult.signature,
+      broadcastedOnChain: txResult.broadcastedOnChain,
+      explorerUrl: txResult.explorerUrl,
+      solscanUrl: txResult.solscanUrl || buildDevnetSolscanTxUrl(txResult.signature),
+    };
   };
 
   // Allow viewing a shared /squad/:poolId web lobby even before wallet connect
@@ -1646,7 +1712,7 @@ export default function App() {
                   onClick={() => {
                     setActiveLobbyPoolId(null);
                     setActiveTab(item.id);
-                    window.history.pushState({}, '', '/');
+                    window.history.pushState({}, '', item.id === 'hunts' ? '/hunts' : '/');
                   }}
                   className={`min-h-[44px] px-3.5 py-2 rounded-full inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
                     active
@@ -1749,7 +1815,15 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'hunts' && <HuntsView onLaunchGeoProof={handleLaunchGeoProof} />}
+            {activeTab === 'hunts' && (
+              <HuntsView
+                walletPubkey={wallet.publicKey}
+                escrowWallet={treasuryConfig?.escrowWallet || CONFIGURED_CLIENT_ESCROW_WALLET}
+                onFundHuntEscrow={handleFundGeoDropEscrow}
+                onSignClaimTx={handleSignGeoDropClaimTx}
+                onNotify={pushToast}
+              />
+            )}
 
             {activeTab === 'squads' && (
               <SquadsView
@@ -1856,7 +1930,7 @@ export default function App() {
                 onClick={() => {
                   setActiveLobbyPoolId(null);
                   setActiveTab(item.id);
-                  window.history.pushState({}, '', '/');
+                  window.history.pushState({}, '', item.id === 'hunts' ? '/hunts' : '/');
                 }}
                 className={`min-h-[44px] rounded-full flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 ${
                   active
