@@ -10,14 +10,12 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  Compass,
   Copy,
   Dumbbell,
   ExternalLink,
   Flame,
   Loader2,
   Lock,
-  MapPin,
   Plus,
   QrCode,
   RefreshCw,
@@ -38,6 +36,7 @@ import {
   GlobalActivitySummary,
   HabitCategory,
   HistoryEntry,
+  PoolTractionSummary,
   StakeCommitment,
   TokenType,
   TreasuryConfigSummary,
@@ -51,7 +50,6 @@ import {
   isSameDayAlarm,
 } from '../utils/timeUtils';
 import { ALARM_SOUNDS } from '../utils/alarmAudio';
-import geodropsArVisual from '../assets/images/geodrops_ar_hunt_visual_1795864407970.jpg';
 import { MascotDisplay } from './MascotDisplay';
 import { ScrollableCalendarStrip } from './ScrollableCalendarStrip';
 import {
@@ -79,10 +77,10 @@ interface HomeViewProps {
   globalActivity: GlobalActivitySummary | null;
   globalActivityLoading?: boolean;
   globalActivityError?: string | null;
+  tractionByPoolId?: Record<string, PoolTractionSummary>;
   onRetryGlobalActivity?: () => void;
   onRefreshDevnet: () => void;
   onOpenMissions: () => void;
-  onOpenHunts?: () => void;
   onOpenAlarmSettings: () => void;
   onOpenPollarFund: () => void;
   onOpenWalletSheet: () => void;
@@ -180,10 +178,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
   globalActivity,
   globalActivityLoading = false,
   globalActivityError = null,
+  tractionByPoolId,
   onRetryGlobalActivity,
   onRefreshDevnet,
   onOpenMissions,
-  onOpenHunts,
   onOpenAlarmSettings,
   onOpenPollarFund,
   onOpenWalletSheet,
@@ -846,6 +844,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               const dayText = isSameDayAlarm(nextTs, nowMs);
               const soundName =
                 ALARM_SOUNDS.find((a) => a.id === stake.alarmSound)?.label || selectedSoundLabel;
+              const heroTeamTraction = stake.poolId ? tractionByPoolId?.[stake.poolId] : undefined;
 
               return (
                 <>
@@ -853,6 +852,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     <div className="space-y-2 min-w-0">
                       <div className="text-xs font-semibold text-[#F16A2E] tabular-nums">
                         {stake.categoryName} · ${stake.amount.toFixed(2)} {stake.token} Staked
+                        {stake.poolId && (
+                          <span className="text-[#6B6663] font-medium">
+                            {' '}
+                            · Team Pool {stake.inviteCode ? `(${stake.inviteCode})` : ''}
+                          </span>
+                        )}
                       </div>
                       <h2 className="font-display text-2xl sm:text-3xl font-extrabold text-[#111114] leading-tight">
                         Daily Challenge
@@ -863,25 +868,37 @@ export const HomeView: React.FC<HomeViewProps> = ({
                         ) · <span className="text-[#F16A2E] font-semibold">In {cd.compact}</span>
                       </p>
 
-                      {/* Overlapping Community Avatars */}
-                      <div className="pt-1 flex flex-wrap items-center gap-3">
-                        <div className="flex items-center -space-x-2">
-                          {['AL', 'SA', 'NI'].map((init) => (
-                            <div
-                              key={init}
-                              className="w-8 h-8 rounded-full bg-[#141416] text-white text-[11px] font-bold flex items-center justify-center border-2 border-white"
-                            >
-                              {init}
-                            </div>
-                          ))}
-                          <div className="w-8 h-8 rounded-full bg-[#FFE3D5] text-[#F16A2E] text-[11px] font-bold flex items-center justify-center border-2 border-white tabular-nums">
-                            +42
-                          </div>
+                      {heroTeamTraction ? (
+                        <div className="pt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums">
+                          <span className="font-bold text-[#16A34A]">
+                            Team Traction: {heroTeamTraction.checkedInPct}% verified today
+                          </span>
+                          <span className="text-[#6B6663]">
+                            {heroTeamTraction.verifiedCount} verified · {heroTeamTraction.activeCount}{' '}
+                            active · {heroTeamTraction.slashedCount} slashed
+                          </span>
                         </div>
-                        <span className="text-xs text-[#6B6663]">
-                          {soundName} · {alarmSettings.strictMode ? 'Strict' : 'Standard'}
-                        </span>
-                      </div>
+                      ) : (
+                        /* Overlapping Community Avatars */
+                        <div className="pt-1 flex flex-wrap items-center gap-3">
+                          <div className="flex items-center -space-x-2">
+                            {['AL', 'SA', 'NI'].map((init) => (
+                              <div
+                                key={init}
+                                className="w-8 h-8 rounded-full bg-[#141416] text-white text-[11px] font-bold flex items-center justify-center border-2 border-white"
+                              >
+                                {init}
+                              </div>
+                            ))}
+                            <div className="w-8 h-8 rounded-full bg-[#FFE3D5] text-[#F16A2E] text-[11px] font-bold flex items-center justify-center border-2 border-white tabular-nums">
+                              +42
+                            </div>
+                          </div>
+                          <span className="text-xs text-[#6B6663]">
+                            {soundName} · {alarmSettings.strictMode ? 'Strict' : 'Standard'}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <MascotDisplay
@@ -901,14 +918,26 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => onTriggerTestAlarm(stake)}
-                      className="min-h-[44px] px-5 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                    >
-                      <BellRing className="w-3.5 h-3.5" />
-                      <span>Verify / Simulate Alarm</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      {stake.poolId && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenSquadLobby(stake.poolId!)}
+                          className="min-h-[44px] px-4 py-2 rounded-full bg-[#FFF2EA] hover:bg-[#FFE4D4] text-[#F16A2E] text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                        >
+                          <Users className="w-3.5 h-3.5" />
+                          <span>View Team</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onTriggerTestAlarm(stake)}
+                        className="min-h-[44px] px-5 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                      >
+                        <BellRing className="w-3.5 h-3.5" />
+                        <span>Verify / Simulate Alarm</span>
+                      </button>
+                    </div>
                   </div>
                 </>
               );
@@ -1205,6 +1234,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 const shortTreasury = treasuryConfig?.treasuryWallet
                   ? `${treasuryConfig.treasuryWallet.slice(0, 4)}...${treasuryConfig.treasuryWallet.slice(-4)}`
                   : 'Actake Treasury';
+                const teamTraction = stake.poolId ? tractionByPoolId?.[stake.poolId] : undefined;
 
                 return (
                   <div
@@ -1261,6 +1291,19 @@ export const HomeView: React.FC<HomeViewProps> = ({
                                     {fmt.full} ({dayText}) · {stake.frequencyLabel || 'Daily'} ·{' '}
                                     {stake.token}{' '}
                                     {stake.protocolFeePct === 0 ? '(0% fee)' : '(SPL)'}
+                                    {stake.poolId && (
+                                      <>
+                                        {' · '}
+                                        <span className="font-semibold text-[#F16A2E]">
+                                          Team Pool{' '}
+                                          {stake.inviteCode
+                                            ? `· ${stake.inviteCode}`
+                                            : stake.squadName
+                                              ? `· ${stake.squadName}`
+                                              : ''}
+                                        </span>
+                                      </>
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -1344,6 +1387,73 @@ export const HomeView: React.FC<HomeViewProps> = ({
                             />
                           </div>
                         </div>
+
+                        {stake.poolId && !isSlashingOut && (
+                          <div className="rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] p-3.5 space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-xs tabular-nums">
+                              <span className="font-bold text-[#111114] inline-flex items-center gap-1.5">
+                                <Users className="w-3.5 h-3.5 text-[#F16A2E]" />
+                                <span>
+                                  Team Traction ·{' '}
+                                  {teamTraction
+                                    ? `${teamTraction.totalMembers} members`
+                                    : stake.squadName || 'Squad'}
+                                </span>
+                              </span>
+                              <span className="font-bold text-[#16A34A]">
+                                {teamTraction
+                                  ? `${teamTraction.checkedInPct}% verified today`
+                                  : 'Live team leaderboard'}
+                              </span>
+                            </div>
+
+                            {teamTraction && (
+                              <div className="h-1.5 w-full rounded-full bg-[#EFE2D9] overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-[#16A34A] transition-all"
+                                  style={{ width: `${teamTraction.checkedInPct}%` }}
+                                />
+                              </div>
+                            )}
+
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] tabular-nums">
+                              <span className="text-[#6B6663]">
+                                {teamTraction ? (
+                                  <>
+                                    <strong className="text-[#16A34A]">
+                                      {teamTraction.verifiedCount} verified
+                                    </strong>{' '}
+                                    ·{' '}
+                                    <strong className="text-[#111114]">
+                                      {teamTraction.activeCount} active
+                                    </strong>{' '}
+                                    ·{' '}
+                                    <strong className="text-[#DC2626]">
+                                      {teamTraction.slashedCount} slashed
+                                    </strong>
+                                    {teamTraction.slashedPotAvailable > 0 && (
+                                      <span className="text-[#16A34A] font-semibold">
+                                        {' '}
+                                        · +${teamTraction.slashedPotAvailable} pot
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span>Synced with shared pool lobby &amp; proofs</span>
+                                )}
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={() => onOpenSquadLobby(stake.poolId!)}
+                                className="min-h-[36px] px-3 py-1 rounded-full bg-white border border-[#EFE2D9] hover:border-[#F16A2E] text-xs font-bold text-[#111114] hover:text-[#F16A2E] inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+                              >
+                                <span>View Team</span>
+                                <ArrowUpRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         {isSlashingOut ? (
                           <div className="relative overflow-hidden rounded-2xl bg-[#FEE2E2]/80 border border-[#FECACA] px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs text-[#991B1B] font-semibold">
@@ -1546,48 +1656,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </button>
             </div>
           </div>
-
-          {/* Visual GeoDrops AR Scavenger Hunts & Brand 3D Drops Spotlight */}
-          {onOpenHunts && (
-            <div className="relative overflow-hidden rounded-[26px] bg-[#141519] text-white border border-[#2A2624] shadow-[0_14px_32px_rgba(17,17,20,0.16)]">
-              <div className="relative h-36 w-full overflow-hidden">
-                <img
-                  src={geodropsArVisual}
-                  alt="GeoDrops AR Scavenger Hunt floating 3D drop outdoors"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#141519] via-[#141519]/40 to-transparent" />
-                <div className="absolute bottom-2.5 left-4 right-4 flex items-center justify-between gap-2 text-[11px] font-semibold text-[#F4976C]">
-                  <span className="inline-flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span>Full-Screen AR Map · 🤖 Voice AI Scout</span>
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-4 pt-2 space-y-3">
-                <div>
-                  <h3 className="font-display text-base font-extrabold text-white">
-                    GeoDrops AR &amp; Brand 3D Drops
-                  </h3>
-                  <p className="text-xs text-white/75 mt-0.5 leading-relaxed">
-                    Hunt real-world 3D drops on a full-screen map with spoken AI tips—or launch a
-                    sponsored brand hunt using 3D Depth Images, AI-to-3D sculptures, or .GLB models.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={onOpenHunts}
-                  className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <Compass className="w-4 h-4" />
-                  <span>Explore GeoDrops Map</span>
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Live Community Pulse with Skeleton, Error Retry, and Empty State */}
           {globalActivityLoading && !globalActivity ? (

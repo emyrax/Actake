@@ -5,13 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
-import {
-  Ed25519Program,
-  PublicKey,
-  SystemProgram,
-  Transaction,
-  TransactionInstruction,
-} from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import bs58 from 'bs58';
 import {
   checkSupabaseHealth,
@@ -19,6 +13,7 @@ import {
   createPoolRecord,
   getLiveGlobalActivity,
   getPoolById,
+  getPoolsTractionMap,
   getSquadFeedAndLeaderboard,
   getTreasurySummary,
   isSupabaseActive,
@@ -28,23 +23,8 @@ import {
   recordPersonalSlash,
   recordPoolSettlement,
   recordVerifiedCheckin,
+  resolvePoolByIdentifier,
 } from './src/server/supabaseStore.ts';
-import {
-  createGeoHunt,
-  getGeoDropGlbAsset,
-  getGeoHuntById,
-  joinGeoHunt,
-  listPublicGeoHunts,
-  recordGeoHuntClaim,
-  storeGeoDropGlbAsset,
-} from './src/server/geoDropsStore.ts';
-import type {
-  GeoDropAi3DBlueprint,
-  GeoDropAi3DPart,
-  GeoDropAiPrimitiveShape,
-  GeoDropArAsset,
-} from './src/types/geodrops.ts';
-import { isPointInsidePolygon } from './src/hooks/hunts/geoMath.ts';
 
 dotenv.config();
 
@@ -95,61 +75,6 @@ function loadOracleKeypair(): {
 }
 
 const oracleKeys = loadOracleKeypair();
-
-function loadGeoDropOracleKeypair(): {
-  privateKey: crypto.KeyObject;
-  publicKey: crypto.KeyObject;
-  publicKeyBytes: Uint8Array;
-  publicKeyHex: string;
-  publicKeyBase58: string;
-} {
-  const rawEnv = process.env.GEODROP_ORACLE_SECRET_KEY?.trim();
-  if (rawEnv) {
-    try {
-      let seedBytes: Buffer | null = null;
-      if (rawEnv.startsWith('[')) {
-        const arr = JSON.parse(rawEnv) as unknown;
-        if (Array.isArray(arr) && arr.length >= 32) {
-          seedBytes = Buffer.from(arr.slice(0, 32).map((n) => Number(n) & 0xff));
-        }
-      } else if (/^[0-9a-fA-F]{64,128}$/.test(rawEnv)) {
-        seedBytes = Buffer.from(rawEnv.slice(0, 64), 'hex');
-      } else {
-        const decoded = bs58.decode(rawEnv);
-        if (decoded.length >= 32) {
-          seedBytes = Buffer.from(decoded.slice(0, 32));
-        }
-      }
-      if (seedBytes && seedBytes.length === 32) {
-        const pkcs8Prefix = Buffer.from('302e020100300506032b657004220420', 'hex');
-        const pkcs8Der = Buffer.concat([pkcs8Prefix, seedBytes]);
-        const privateKey = crypto.createPrivateKey({ key: pkcs8Der, format: 'der', type: 'pkcs8' });
-        const publicKey = crypto.createPublicKey(privateKey);
-        const spkiDer = publicKey.export({ type: 'spki', format: 'der' });
-        const rawPub = Buffer.from(spkiDer).subarray(-32);
-        return {
-          privateKey,
-          publicKey,
-          publicKeyBytes: new Uint8Array(rawPub),
-          publicKeyHex: rawPub.toString('hex'),
-          publicKeyBase58: bs58.encode(rawPub),
-        };
-      }
-    } catch {
-      // Fall through cleanly to the default server Ed25519 oracle keypair
-    }
-  }
-
-  return {
-    privateKey: oracleKeys.privateKey,
-    publicKey: oracleKeys.publicKey,
-    publicKeyBytes: new Uint8Array(Buffer.from(oracleKeys.publicKeyHex, 'hex')),
-    publicKeyHex: oracleKeys.publicKeyHex,
-    publicKeyBase58: oracleKeys.publicKeyBase58,
-  };
-}
-
-const geoDropOracleKeys = loadGeoDropOracleKeypair();
 const airdropCooldownMap = new Map<string, number>();
 
 function getGeminiClient(): GoogleGenAI {
@@ -1198,7 +1123,7 @@ export function createApiApp(): express.Express {
     applySolanaActionsCors(res);
     try {
       const poolId = String(req.params.poolId || '').trim();
-      const pool = (await getPoolById(poolId)) || (await listPools(1))[0];
+      const pool = (await resolvePoolByIdentifier(poolId)) || (await getPoolById(poolId)) || (await listPools(1))[0];
       const baseOrigin = resolveBaseOrigin(req);
 
       if (!pool) {
@@ -1249,7 +1174,7 @@ export function createApiApp(): express.Express {
         return;
       }
 
-      const pool = (await getPoolById(poolId)) || (await listPools(1))[0];
+      const pool = (await resolvePoolByIdentifier(poolId)) || (await getPoolById(poolId)) || (await listPools(1))[0];
       if (!pool) {
         res.status(404).json({ message: 'Pool not found.' });
         return;
@@ -1333,6 +1258,8 @@ export function createApiApp(): express.Express {
   app.post('/api/pools', async (req, res) => {
     try {
       const {
+        id: rawId,
+        inviteCode: rawInviteCode,
         title,
         poolPubkey,
         creatorPubkey,
@@ -1354,6 +1281,10 @@ export function createApiApp(): express.Express {
       const cleanTitle = String(title || '').trim();
       const cleanCreator = String(creatorPubkey || '').trim();
       const amountNum = Number(stakeAmount);
+      const rawIdStr = typeof rawId === 'string' ? rawId.trim() : '';
+      const cleanId = /^[a-zA-Z0-9_-]{3,80}$/.test(rawIdStr) ? rawIdStr : undefined;
+      const rawCodeStr = typeof rawInviteCode === 'string' ? rawInviteCode.trim().toUpperCase() : '';
+      const cleanInviteCode = /^[A-Z0-9-]{4,16}$/.test(rawCodeStr) ? rawCodeStr : undefined;
 
       if (!cleanTitle || cleanTitle.length > 80) {
         res.status(400).json({ error: 'Pool title must be between 1 and 80 characters.' });
@@ -1369,6 +1300,8 @@ export function createApiApp(): express.Express {
       }
 
       const pool = await createPoolRecord({
+        id: cleanId,
+        inviteCode: cleanInviteCode,
         title: cleanTitle,
         poolPubkey: String(poolPubkey || `ACTKPool${Date.now().toString(36)}`),
         creatorPubkey: cleanCreator,
@@ -1390,6 +1323,50 @@ export function createApiApp(): express.Express {
       res.status(201).json({ pool });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to create pool.';
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.get('/api/pools/resolve', async (req, res) => {
+    try {
+      const rawQuery = String(req.query.q || '').trim();
+      if (!rawQuery || rawQuery.length > 500) {
+        res.status(400).json({ error: 'Provide a valid pool link, Blink URL, or invite code.' });
+        return;
+      }
+      const pool = await resolvePoolByIdentifier(rawQuery);
+      if (!pool) {
+        res.status(404).json({ error: 'No matching accountability pool found for that link or code.' });
+        return;
+      }
+      const result = await getSquadFeedAndLeaderboard(pool.id);
+      if (!result.pool) {
+        res.status(404).json({ error: 'Pool not found.' });
+        return;
+      }
+      res.json(result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to resolve pool link or code.';
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.get('/api/pools/traction', async (req, res) => {
+    try {
+      const rawIds = String(req.query.ids || '').trim();
+      if (!rawIds) {
+        res.json({ tractionByPoolId: {} });
+        return;
+      }
+      const ids = rawIds
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => /^[a-zA-Z0-9_-]{3,80}$/.test(id))
+        .slice(0, 25);
+      const tractionByPoolId = await getPoolsTractionMap(ids);
+      res.json({ tractionByPoolId });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to load pool traction.';
       res.status(500).json({ error: msg });
     }
   });
@@ -2754,798 +2731,6 @@ Keep itemName as "${selectedTemplate.itemName}" and write a fresh, motivating, s
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Devnet airdrop request failed.';
       res.status(502).json({ error: message });
-    }
-  });
-
-  // =========================================================================
-  // GeoDrops AR Scavenger Hunts API (/api/hunts/*) — Strictly Isolated
-  // =========================================================================
-  const ALLOWED_AI_SHAPES = new Set<GeoDropAiPrimitiveShape>([
-    'box',
-    'cylinder',
-    'sphere',
-    'torus',
-    'cone',
-    'capsule',
-    'dodecahedron',
-  ]);
-
-  const sanitizeHexColor = (val: unknown, fallback: string): string => {
-    const s = String(val ?? '').trim();
-    return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toUpperCase() : fallback;
-  };
-
-  const clampNum = (val: unknown, min: number, max: number, fallback: number): number => {
-    const n = Number(val);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.max(min, Math.min(max, n));
-  };
-
-  const sanitizeAiBlueprint = (raw: unknown): GeoDropAi3DBlueprint | null => {
-    if (!raw || typeof raw !== 'object') return null;
-    const obj = raw as Record<string, unknown>;
-    const rawParts = Array.isArray(obj.parts) ? obj.parts : [];
-    const parts: GeoDropAi3DPart[] = [];
-
-    for (const item of rawParts.slice(0, 14)) {
-      if (!item || typeof item !== 'object') continue;
-      const p = item as Record<string, unknown>;
-      const shapeCandidate = String(p.shape ?? 'box').toLowerCase() as GeoDropAiPrimitiveShape;
-      const shape: GeoDropAiPrimitiveShape = ALLOWED_AI_SHAPES.has(shapeCandidate)
-        ? shapeCandidate
-        : 'box';
-
-      const posArr = Array.isArray(p.position) ? p.position : [0, 0, 0];
-      const rotArr = Array.isArray(p.rotation) ? p.rotation : [0, 0, 0];
-      const sclArr = Array.isArray(p.scale) ? p.scale : [0.5, 0.5, 0.5];
-
-      parts.push({
-        shape,
-        position: [
-          clampNum(posArr[0], -1.8, 1.8, 0),
-          clampNum(posArr[1], -1.8, 1.8, 0),
-          clampNum(posArr[2], -1.8, 1.8, 0),
-        ],
-        rotation: [
-          clampNum(rotArr[0], -6.284, 6.284, 0),
-          clampNum(rotArr[1], -6.284, 6.284, 0),
-          clampNum(rotArr[2], -6.284, 6.284, 0),
-        ],
-        scale: [
-          clampNum(sclArr[0], 0.08, 2.2, 0.5),
-          clampNum(sclArr[1], 0.08, 2.2, 0.5),
-          clampNum(sclArr[2], 0.08, 2.2, 0.5),
-        ],
-        colorHex: sanitizeHexColor(p.colorHex, '#F16A2E'),
-        metalness: clampNum(p.metalness, 0, 1, 0.45),
-        roughness: clampNum(p.roughness, 0.08, 1, 0.35),
-        emissiveHex: p.emissiveHex ? sanitizeHexColor(p.emissiveHex, '#000000') : undefined,
-        emissiveIntensity:
-          p.emissiveIntensity !== undefined ? clampNum(p.emissiveIntensity, 0, 2.2, 0) : undefined,
-      });
-    }
-
-    if (parts.length < 2) return null;
-
-    const finishRaw = String(obj.finish ?? 'metallic');
-    const finish: GeoDropAi3DBlueprint['finish'] =
-      finishRaw === 'glossy' || finishRaw === 'matte' || finishRaw === 'neon_glass'
-        ? finishRaw
-        : 'metallic';
-
-    return {
-      title: String(obj.title ?? 'Brand 3D Sculpture').trim().slice(0, 64) || 'Brand 3D Sculpture',
-      summary: String(obj.summary ?? 'AI-sculpted 3D AR collectible').trim().slice(0, 180),
-      finish,
-      primaryColorHex: sanitizeHexColor(obj.primaryColorHex, '#18181B'),
-      accentColorHex: sanitizeHexColor(obj.accentColorHex, '#F16A2E'),
-      glowColorHex: sanitizeHexColor(obj.glowColorHex, '#FBBF24'),
-      parts,
-    };
-  };
-
-  const sanitizeImageDataUrl = (raw: unknown): string | undefined => {
-    if (typeof raw !== 'string') return undefined;
-    const trimmed = raw.trim();
-    const match = trimmed.match(/^data:image\/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=]+)$/);
-    if (!match) return undefined;
-    // Cap decoded image size to <= 4 MB
-    const byteLength = Math.floor((match[2].length * 3) / 4);
-    if (byteLength < 64 || byteLength > 4 * 1024 * 1024) return undefined;
-    return trimmed;
-  };
-
-  const sanitizeGeoDropArAsset = (raw: unknown): GeoDropArAsset | null => {
-    if (!raw || typeof raw !== 'object') return null;
-    const obj = raw as Record<string, unknown>;
-    const kindRaw = String(obj.kind ?? 'chest');
-    const kind: GeoDropArAsset['kind'] =
-      kindRaw === 'image_depth' || kindRaw === 'ai_3d_sculpture' || kindRaw === 'custom_glb'
-        ? kindRaw
-        : 'chest';
-
-    if (kind === 'chest') {
-      return { kind: 'chest' };
-    }
-
-    const brandName = String(obj.brandName ?? '').trim().slice(0, 60) || undefined;
-    const accentHex = obj.accentHex ? sanitizeHexColor(obj.accentHex, '#F16A2E') : undefined;
-    const imageDataUrl = sanitizeImageDataUrl(obj.imageDataUrl);
-    const frameRaw = String(obj.frameStyle ?? 'card');
-    const frameStyle: GeoDropArAsset['frameStyle'] =
-      frameRaw === 'medallion' || frameRaw === 'cutout' ? frameRaw : 'card';
-    const depthStrength = clampNum(obj.depthStrength, 0.15, 1.0, 0.65);
-
-    if (kind === 'image_depth') {
-      if (!imageDataUrl) return null;
-      return {
-        kind: 'image_depth',
-        brandName,
-        imageDataUrl,
-        depthStrength,
-        frameStyle,
-        accentHex,
-      };
-    }
-
-    if (kind === 'ai_3d_sculpture') {
-      const aiBlueprint = sanitizeAiBlueprint(obj.aiBlueprint);
-      if (!aiBlueprint) return null;
-      return {
-        kind: 'ai_3d_sculpture',
-        brandName,
-        imageDataUrl,
-        accentHex: accentHex || aiBlueprint.accentColorHex,
-        aiBlueprint,
-      };
-    }
-
-    // custom_glb: strictly allow only verified same-origin /api/hunts/assets/<24-hex> URLs
-    const urlStr = String(obj.modelAssetUrl ?? '').trim();
-    if (!/^\/api\/hunts\/assets\/[a-f0-9]{24}$/.test(urlStr)) {
-      return null;
-    }
-
-    return {
-      kind: 'custom_glb',
-      brandName,
-      accentHex,
-      modelAssetUrl: urlStr,
-      modelFileName: String(obj.modelFileName ?? 'custom-model.glb').trim().slice(0, 80),
-      modelSizeBytes: clampNum(obj.modelSizeBytes, 1, 10 * 1024 * 1024, 0),
-    };
-  };
-
-  app.post('/api/hunts/ai-to-3d', async (req, res) => {
-    try {
-      const body = req.body ?? {};
-      const safeDataUrl = sanitizeImageDataUrl(body.imageDataUrl);
-      if (!safeDataUrl) {
-        res.status(400).json({
-          error: 'Upload a valid PNG, JPEG, or WebP brand image (up to 4 MB) before converting to 3D.',
-        });
-        return;
-      }
-
-      const brandName = String(body.brandName ?? '').trim().slice(0, 60);
-      const styleHint = String(body.hint ?? '').trim().slice(0, 160);
-      const mimeMatch = safeDataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
-      const mimeType = mimeMatch?.[1] || 'image/png';
-      const base64Data = safeDataUrl.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
-
-      const ai = getGeminiClient();
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType,
-                data: base64Data,
-              },
-            },
-            {
-              text: `You are a 3D AR collectible sculptor for Solana mobile scavenger hunts.
-Inspect the uploaded brand image${brandName ? ` for "${brandName}"` : ''}${styleHint ? ` (style note: ${styleHint})` : ''}.
-Design a cohesive, iconic volumetric 3D AR sculpture inspired by the object, silhouette, colors, and brand vibe in this image (for example: a sleek trophy pedestal, stylized beverage can, sneaker totem, cosmic emblem relic, geometric mascot statue, or luxury vault).
-Rules:
-1. Extract the exact dominant brand primaryColorHex, accentColorHex, and glowColorHex (#RRGGBB).
-2. Return between 6 and 12 3D parts using ONLY shapes from: box, cylinder, sphere, torus, cone, capsule, dodecahedron.
-3. Position every part harmoniously around the origin [0, 0, 0] with coordinates inside [-1.2, 1.2] and scales inside [0.15, 1.6] so the parts visibly interlock into one recognizable floating 3D sculpture.
-4. Keep the front face (around z = +0.55..0.75) clean so the brand emblem disc can float nicely in front of the core body.
-Return ONLY valid JSON matching the schema.`,
-            },
-          ],
-        },
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              summary: { type: Type.STRING },
-              finish: { type: Type.STRING },
-              primaryColorHex: { type: Type.STRING },
-              accentColorHex: { type: Type.STRING },
-              glowColorHex: { type: Type.STRING },
-              parts: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    shape: { type: Type.STRING },
-                    position: { type: Type.ARRAY, items: { type: Type.NUMBER } },
-                    rotation: { type: Type.ARRAY, items: { type: Type.NUMBER } },
-                    scale: { type: Type.ARRAY, items: { type: Type.NUMBER } },
-                    colorHex: { type: Type.STRING },
-                    metalness: { type: Type.NUMBER },
-                    roughness: { type: Type.NUMBER },
-                    emissiveHex: { type: Type.STRING },
-                    emissiveIntensity: { type: Type.NUMBER },
-                  },
-                  required: ['shape', 'position', 'rotation', 'scale', 'colorHex', 'metalness', 'roughness'],
-                },
-              },
-            },
-            required: [
-              'title',
-              'summary',
-              'finish',
-              'primaryColorHex',
-              'accentColorHex',
-              'glowColorHex',
-              'parts',
-            ],
-          },
-        },
-      });
-
-      const parsed = safeParseModelJson<Record<string, unknown>>(response.text);
-      const blueprint = sanitizeAiBlueprint(parsed);
-      if (!blueprint) {
-        res.status(502).json({
-          error: 'AI could not assemble a valid 3D sculpture from this image. Try again or use 3D Depth Image mode.',
-        });
-        return;
-      }
-
-      res.json({ blueprint, model: 'gemini-4-hydrogen' });
-    } catch (err: unknown) {
-      res.status(502).json({ error: formatGeminiApiError(err) });
-    }
-  });
-
-  app.post('/api/hunts/ai-guide', async (req, res) => {
-    try {
-      const body = req.body ?? {};
-      const userMessage = String(body.userMessage ?? '').trim().slice(0, 600);
-      if (!userMessage) {
-        res.status(400).json({ error: 'Please ask a question or request a hint.' });
-        return;
-      }
-
-      const huntTitle = String(body.huntTitle ?? 'GeoDrop Hunt').trim().slice(0, 80);
-      const landmarkName = String(body.landmarkName ?? 'the landmark').trim().slice(0, 100);
-      const loreHint = String(body.loreHint ?? '').trim().slice(0, 320);
-      const radiusMeters = Number(body.radiusMeters) || 25;
-      const rewardPerChest = Number(body.rewardPerChest) || 0;
-      const tokenSymbol = body.tokenSymbol === 'SKR' ? 'SKR' : 'USDC';
-      const targetLat = Number(body.targetLat);
-      const targetLng = Number(body.targetLng);
-      const distanceMeters =
-        body.distanceMeters !== null &&
-        body.distanceMeters !== undefined &&
-        Number.isFinite(Number(body.distanceMeters))
-          ? Math.max(0, Math.round(Number(body.distanceMeters)))
-          : null;
-      const cardinalDirection = String(body.cardinalDirection ?? '').trim().slice(0, 16);
-      const turnCue = String(body.turnCue ?? '').trim().slice(0, 60);
-      const insideGeofence = Boolean(body.insideGeofence);
-      const experienceMode = String(body.experienceMode ?? 'idle').trim().slice(0, 24);
-      const arAssetKind = String(body.arAssetKind ?? 'chest').trim().slice(0, 32);
-
-      const rawHistory = Array.isArray(body.history) ? body.history : [];
-      const historyLines = rawHistory
-        .slice(-6)
-        .map((item: unknown) => {
-          if (!item || typeof item !== 'object') return null;
-          const row = item as { role?: unknown; text?: unknown };
-          const speaker = row.role === 'assistant' ? 'Scout' : 'Hunter';
-          const text = String(row.text ?? '').trim().slice(0, 300);
-          return text ? `${speaker}: ${text}` : null;
-        })
-        .filter((line: string | null): line is string => Boolean(line));
-
-      const locationSummary =
-        distanceMeters !== null
-          ? insideGeofence
-            ? `Hunter is ALREADY INSIDE the ${radiusMeters}m geofence (${distanceMeters}m from center)!`
-            : `Hunter is currently ${distanceMeters} meters away, heading ${cardinalDirection || 'toward target'} (${turnCue || 'follow map arrow'}).`
-          : experienceMode === 'idle'
-            ? 'Hunter is previewing the full-screen map and has not enabled Live GPS or Indoor Demo yet.'
-            : 'GPS is still locking onto the hunter position.';
-
-      const coordsNote =
-        Number.isFinite(targetLat) && Number.isFinite(targetLng)
-          ? `${targetLat.toFixed(5)}, ${targetLng.toFixed(5)}`
-          : 'marked on map';
-
-      const dropTypeLabel =
-        arAssetKind === 'image_depth'
-          ? '3D sculpted brand drop'
-          : arAssetKind === 'ai_3d_sculpture'
-            ? 'AI-crafted 3D brand monument'
-            : arAssetKind === 'custom_glb'
-              ? 'custom 3D brand drop'
-              : '3D AR treasure chest';
-
-      const ai = getGeminiClient();
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: `${historyLines.length > 0 ? `Recent conversation:\n${historyLines.join('\n')}\n\n` : ''}Hunter asks: "${userMessage}"`,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          systemInstruction: `You are the Actake GeoDrops AI Hunt Scout — a warm, upbeat, street-smart treasure hunt navigator talking directly to an explorer on their phone.
-Current Hunt Context:
-- Title: "${huntTitle}"
-- Landmark: "${landmarkName}" (Coordinates: ${coordsNote})
-- Creator Hint / Lore: "${loreHint || 'Look around the highlighted zone on the map.'}"
-- Geofence Radius: ${radiusMeters} meters
-- Reward: ${rewardPerChest} ${tokenSymbol} per drop (${dropTypeLabel})
-- Live Hunter Status: ${locationSummary}
-
-Rules for your reply:
-1. Speak naturally in 2 to 3 crisp, friendly sentences (max 55 words) because your reply will be read aloud to the hunter.
-2. Give practical tips on how to reach the geofence, use the map/radar/AR camera, or spot the landmark based on the real context above.
-3. If they are still in preview/idle mode, gently mention they can tap "Enable AR & Sensor Mode" to walk live or "Demo" to test indoors.
-4. If they are already inside the geofence, excite them to tap "AR" and tap the floating 3D drop to unlock their reward!
-5. Plain spoken sentences only — NO markdown bolding, NO bullet lists, NO hashtags, NO emojis.`,
-        },
-      });
-
-      const reply = String(response.text ?? '').trim();
-      if (!reply) {
-        res.status(502).json({ error: 'AI Hunt Scout returned an empty response. Please try again.' });
-        return;
-      }
-
-      res.json({ reply, model: 'gemini-4-hydrogen' });
-    } catch (err: unknown) {
-      res.status(502).json({ error: formatGeminiApiError(err) });
-    }
-  });
-
-  app.post('/api/hunts/ai-guide/speak', async (req, res) => {
-    try {
-      const text = String(req.body?.text ?? '').trim().slice(0, 500);
-      if (!text) {
-        res.status(400).json({ error: 'Missing text to speak.' });
-        return;
-      }
-
-      const ai = getGeminiClient();
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash-lite-tts',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text,
-                speechMetadata: {
-                  style: 'Warm, upbeat, friendly outdoor treasure hunt guide',
-                },
-              },
-            ],
-          },
-        ],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Kore' },
-            },
-          },
-        },
-      });
-
-      const audioBase64 =
-        response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!audioBase64) {
-        res.status(502).json({ error: 'Voice synthesizer did not return audio.' });
-        return;
-      }
-
-      res.json({
-        audioBase64,
-        mimeType: 'audio/wav',
-        model: 'gemini-3.8-flash-lite-tts',
-      });
-    } catch (err: unknown) {
-      res.status(502).json({ error: formatGeminiApiError(err) });
-    }
-  });
-
-  app.post('/api/hunts/assets/glb', (req, res) => {
-    try {
-      const body = req.body ?? {};
-      const fileName = String(body.fileName ?? 'brand-model.glb').trim().slice(0, 80);
-      const base64Data = String(body.base64Data ?? '').trim();
-
-      if (!base64Data) {
-        res.status(400).json({ error: 'Missing .glb file payload.' });
-        return;
-      }
-
-      const cleanedBase64 = base64Data.replace(/^data:[^;]+;base64,/i, '');
-      const buffer = Buffer.from(cleanedBase64, 'base64');
-
-      if (buffer.length < 20 || buffer.length > 10 * 1024 * 1024) {
-        res.status(400).json({ error: 'Custom .glb model must be between 20 bytes and 10 MB.' });
-        return;
-      }
-
-      // Strictly verify binary glTF 2.0 magic header: 0x67 0x6C 0x54 0x46 ("glTF") and version === 2
-      const magic = buffer.toString('ascii', 0, 4);
-      const version = buffer.readUInt32LE(4);
-      if (magic !== 'glTF' || version !== 2) {
-        res.status(400).json({
-          error: 'Invalid 3D model file. Please upload a valid binary glTF 2.0 (.glb) file.',
-        });
-        return;
-      }
-
-      const saved = storeGeoDropGlbAsset({ fileName, buffer });
-      res.status(201).json(saved);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unable to upload custom .glb model.';
-      res.status(500).json({ error: message });
-    }
-  });
-
-  app.get('/api/hunts/assets/:assetId', (req, res) => {
-    const assetId = String(req.params.assetId || '').trim();
-    const asset = getGeoDropGlbAsset(assetId);
-    if (!asset) {
-      res.status(404).json({ error: '3D model asset not found or expired.' });
-      return;
-    }
-    res.setHeader('Content-Type', 'model/gltf-binary');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.send(asset.buffer);
-  });
-
-  app.get('/api/hunts', async (_req, res) => {
-    try {
-      const result = await listPublicGeoHunts();
-      res.json(result);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unable to load public GeoDrops hunts.';
-      res.status(500).json({ error: message });
-    }
-  });
-
-  app.post('/api/hunts', async (req, res) => {
-    try {
-      const body = req.body ?? {};
-      const title = String(body.title ?? '').trim().slice(0, 80);
-      const landmarkName = String(body.landmarkName ?? '').trim().slice(0, 100);
-      const loreHint = String(body.loreHint ?? '').trim().slice(0, 320);
-      const creatorWallet = parseValidSolanaAddress(body.creatorWallet);
-      const huntEscrowPubkey =
-        parseValidSolanaAddress(body.huntEscrowPubkey) || resolveTreasuryConfig().escrowWallet;
-      const fundingTxSignature = String(body.fundingTxSignature ?? '').trim().slice(0, 140);
-      const tokenSymbol = body.tokenSymbol === 'SKR' ? 'SKR' : body.tokenSymbol === 'USDC' ? 'USDC' : null;
-      const totalPoolAmount = Number(body.totalPoolAmount);
-      const totalChests = Math.floor(Number(body.totalChests));
-      const targetLat = Number(body.targetLat);
-      const targetLng = Number(body.targetLng);
-      const radiusRaw = Number(body.radiusMeters);
-      const radiusMeters = radiusRaw === 15 || radiusRaw === 50 ? radiusRaw : radiusRaw === 25 ? 25 : null;
-
-      if (!title || title.length < 3) {
-        res.status(400).json({ error: 'Hunt title must be at least 3 characters.' });
-        return;
-      }
-      if (!landmarkName || landmarkName.length < 2) {
-        res.status(400).json({ error: 'Landmark name is required.' });
-        return;
-      }
-      if (!creatorWallet) {
-        res.status(400).json({ error: 'Valid creatorWallet Solana public key is required.' });
-        return;
-      }
-      if (!huntEscrowPubkey) {
-        res.status(400).json({ error: 'Valid huntEscrowPubkey Solana address is required.' });
-        return;
-      }
-      if (!tokenSymbol) {
-        res.status(400).json({ error: 'tokenSymbol must be SKR or USDC.' });
-        return;
-      }
-      if (!Number.isFinite(totalPoolAmount) || totalPoolAmount < 0.01 || totalPoolAmount > 1_000_000) {
-        res.status(400).json({ error: 'totalPoolAmount must be between 0.01 and 1,000,000.' });
-        return;
-      }
-      if (!Number.isFinite(totalChests) || totalChests < 1 || totalChests > 50) {
-        res.status(400).json({ error: 'totalChests must be an integer between 1 and 50.' });
-        return;
-      }
-      if (
-        !Number.isFinite(targetLat) ||
-        targetLat < -90 ||
-        targetLat > 90 ||
-        !Number.isFinite(targetLng) ||
-        targetLng < -180 ||
-        targetLng > 180
-      ) {
-        res.status(400).json({ error: 'Valid targetLat (-90..90) and targetLng (-180..180) are required.' });
-        return;
-      }
-      if (!radiusMeters) {
-        res.status(400).json({ error: 'radiusMeters must be 15, 25, or 50.' });
-        return;
-      }
-
-      const rawPoly = Array.isArray(body.geofencePolygon) ? body.geofencePolygon : null;
-      const geofencePolygon =
-        rawPoly && rawPoly.length >= 3
-          ? rawPoly
-              .slice(0, 20)
-              .filter(
-                (pt: unknown): pt is { lat: number; lng: number } =>
-                  Boolean(pt) &&
-                  typeof pt === 'object' &&
-                  Number.isFinite(Number((pt as { lat?: unknown }).lat)) &&
-                  Number.isFinite(Number((pt as { lng?: unknown }).lng)) &&
-                  Number((pt as { lat: number }).lat) >= -90 &&
-                  Number((pt as { lat: number }).lat) <= 90 &&
-                  Number((pt as { lng: number }).lng) >= -180 &&
-                  Number((pt as { lng: number }).lng) <= 180
-              )
-              .map((pt: { lat: number; lng: number }) => ({
-                lat: Number(pt.lat),
-                lng: Number(pt.lng),
-              }))
-          : null;
-
-      const arAsset = sanitizeGeoDropArAsset(body.arAsset);
-
-      const created = await createGeoHunt({
-        title,
-        landmarkName,
-        loreHint:
-          loreHint ||
-          `Walk inside the ${radiusMeters}m geofence around ${landmarkName} and unlock the AR treasure chest.`,
-        creatorWallet,
-        huntEscrowPubkey,
-        fundingTxSignature,
-        tokenSymbol,
-        totalPoolAmount,
-        totalChests,
-        targetLat,
-        targetLng,
-        radiusMeters,
-        geofencePolygon: geofencePolygon && geofencePolygon.length >= 3 ? geofencePolygon : null,
-        arAsset,
-        isPublic: true,
-      });
-
-      res.status(201).json(created);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unable to create GeoDrop hunt.';
-      res.status(500).json({ error: message });
-    }
-  });
-
-  app.post('/api/hunts/:id/join', async (req, res) => {
-    try {
-      const huntId = String(req.params.id || '').trim();
-      const walletPubkey = parseValidSolanaAddress(req.body?.walletPubkey);
-      if (!huntId) {
-        res.status(400).json({ error: 'Missing hunt ID.' });
-        return;
-      }
-      if (!walletPubkey) {
-        res.status(400).json({ error: 'Valid Solana walletPubkey is required to join a hunt.' });
-        return;
-      }
-
-      const hunt = await joinGeoHunt(huntId, walletPubkey);
-      if (!hunt) {
-        res.status(404).json({ error: 'GeoDrop hunt not found.' });
-        return;
-      }
-      res.json({ hunt });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unable to join GeoDrop hunt.';
-      res.status(500).json({ error: message });
-    }
-  });
-
-  app.post('/api/hunts/:id/verify-claim', async (req, res) => {
-    try {
-      const huntId = String(req.params.id || '').trim();
-      const body = req.body ?? {};
-      const hunterPubkey = parseValidSolanaAddress(body.hunterPubkey);
-      const lat = Number(body.lat);
-      const lng = Number(body.lng);
-      const accuracy = Number(body.accuracy);
-      const indoorSimulation = Boolean(body.indoorSimulation);
-
-      if (!huntId) {
-        res.status(400).json({ error: 'Missing hunt ID.' });
-        return;
-      }
-      if (!hunterPubkey) {
-        res.status(400).json({ error: 'Valid hunterPubkey Solana address is required.' });
-        return;
-      }
-      if (
-        !Number.isFinite(lat) ||
-        lat < -90 ||
-        lat > 90 ||
-        !Number.isFinite(lng) ||
-        lng < -180 ||
-        lng > 180
-      ) {
-        res.status(400).json({ error: 'Valid GPS coordinates (lat, lng) are required.' });
-        return;
-      }
-      if (!Number.isFinite(accuracy) || accuracy < 0) {
-        res.status(400).json({ error: 'Valid GPS accuracy in meters is required.' });
-        return;
-      }
-
-      const hunt = await getGeoHuntById(huntId);
-      if (!hunt) {
-        res.status(404).json({ error: 'GeoDrop hunt not found.' });
-        return;
-      }
-      if (hunt.claimsRemaining <= 0) {
-        res.status(409).json({ error: 'All chests for this GeoDrop hunt have been claimed.' });
-        return;
-      }
-      if (hunt.claimedBy.includes(hunterPubkey)) {
-        res.status(409).json({ error: 'This wallet has already unlocked a chest in this hunt.' });
-        return;
-      }
-
-      const distanceMeters = haversineMeters(lat, lng, hunt.targetLat, hunt.targetLng);
-      const insidePolygon =
-        hunt.geofencePolygon && hunt.geofencePolygon.length >= 3
-          ? isPointInsidePolygon(lat, lng, hunt.geofencePolygon)
-          : false;
-      const insideGeofence = distanceMeters <= hunt.radiusMeters || insidePolygon;
-
-      if (!insideGeofence) {
-        res.status(400).json({
-          error: `Outside target geofence (${Math.round(distanceMeters)}m away; move within ${hunt.radiusMeters}m or enter the mapped area).`,
-          distanceMeters: Number(distanceMeters.toFixed(2)),
-          radiusMeters: hunt.radiusMeters,
-        });
-        return;
-      }
-
-      if (!indoorSimulation && accuracy > 25) {
-        res.status(400).json({
-          error: `GPS accuracy too wide (${Math.round(accuracy)}m). Live GeoDrop claims require <= 25m GPS precision.`,
-          accuracyMeters: Math.round(accuracy),
-        });
-        return;
-      }
-
-      const recentBlockhash = await fetchLatestDevnetBlockhashServer();
-      const verifiedAt = Date.now();
-      const attestationPayload = `actake:claim_geodrop:${hunt.id}:${hunterPubkey}:${hunt.rewardPerChest}:${hunt.tokenSymbol}:${lat.toFixed(5)}:${lng.toFixed(5)}:${verifiedAt}`;
-      const messageBuf = Buffer.from(attestationPayload, 'utf8');
-      const signatureBuf = crypto.sign(null, messageBuf, geoDropOracleKeys.privateKey);
-      const oracleSignature = signatureBuf.toString('hex');
-
-      const hunterKey = new PublicKey(hunterPubkey);
-      const tx = new Transaction({
-        feePayer: hunterKey,
-        recentBlockhash: recentBlockhash as NonNullable<Transaction['recentBlockhash']>,
-      });
-
-      // 1. Native Solana Ed25519 Oracle Attestation Verification Instruction
-      tx.add(
-        Ed25519Program.createInstructionWithPublicKey({
-          publicKey: geoDropOracleKeys.publicKeyBytes,
-          message: new Uint8Array(messageBuf),
-          signature: new Uint8Array(signatureBuf),
-        })
-      );
-
-      // 2. Anchor-aligned claim_geodrop Memo Receipt referencing HuntEscrow + verified distance
-      const memoPayload = JSON.stringify({
-        app: 'actake_geodrops',
-        ix: 'claim_geodrop',
-        huntId: hunt.id,
-        escrow: hunt.huntEscrowPubkey,
-        hunter: hunterPubkey,
-        reward: hunt.rewardPerChest,
-        token: hunt.tokenSymbol,
-        distM: Number(distanceMeters.toFixed(1)),
-        accM: Number(accuracy.toFixed(1)),
-        mode: indoorSimulation ? 'indoor_demo' : 'live_gps',
-        ts: verifiedAt,
-      });
-
-      tx.add(
-        new TransactionInstruction({
-          programId: MEMO_PROGRAM_ID,
-          keys: [{ pubkey: hunterKey, isSigner: true, isWritable: false }],
-          data: Buffer.from(memoPayload, 'utf8'),
-        })
-      );
-
-      const serializedBytes = await tx.serialize({
-        requireAllSignatures: false,
-        verifySignatures: false,
-      });
-      const serializedTx = Buffer.from(serializedBytes).toString('base64');
-
-      res.json({
-        serializedTx,
-        oracleSignature,
-        oraclePublicKeyHex: geoDropOracleKeys.publicKeyHex,
-        distanceMeters: Number(distanceMeters.toFixed(2)),
-        insideGeofence: true,
-        rewardPerChest: hunt.rewardPerChest,
-        tokenSymbol: hunt.tokenSymbol,
-        huntEscrowPubkey: hunt.huntEscrowPubkey,
-        indoorSimulation,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unable to verify GeoDrop claim.';
-      res.status(502).json({ error: message });
-    }
-  });
-
-  app.post('/api/hunts/:id/confirm-claim', async (req, res) => {
-    try {
-      const huntId = String(req.params.id || '').trim();
-      const hunterPubkey = parseValidSolanaAddress(req.body?.hunterPubkey);
-      const claimTxSignature = String(req.body?.claimTxSignature ?? '').trim().slice(0, 140);
-      const oracleSignature = String(req.body?.oracleSignature ?? '').trim().slice(0, 200);
-
-      if (!huntId) {
-        res.status(400).json({ error: 'Missing hunt ID.' });
-        return;
-      }
-      if (!hunterPubkey) {
-        res.status(400).json({ error: 'Valid hunterPubkey is required.' });
-        return;
-      }
-      if (!claimTxSignature) {
-        res.status(400).json({ error: 'Missing confirmed transaction signature.' });
-        return;
-      }
-
-      const result = await recordGeoHuntClaim({
-        huntId,
-        hunterPubkey,
-        claimTxSignature,
-        oracleSignature,
-      });
-
-      if (!result) {
-        res.status(404).json({ error: 'GeoDrop hunt not found.' });
-        return;
-      }
-
-      res.json({
-        hunt: result.hunt,
-        claimTxSignature,
-        explorerUrl: `https://explorer.solana.com/tx/${encodeURIComponent(claimTxSignature)}?cluster=devnet`,
-        solscanUrl: `https://solscan.io/tx/${encodeURIComponent(claimTxSignature)}?cluster=devnet`,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unable to finalize GeoDrop claim.';
-      res.status(409).json({ error: message });
     }
   });
 

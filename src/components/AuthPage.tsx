@@ -35,6 +35,7 @@ interface AuthPageProps {
   platform: PlatformCompatibility;
   connecting: boolean;
   error: string | null;
+  pendingPoolInvite?: string | null;
   onConnect: (walletId: string) => void;
   onBack: () => void;
 }
@@ -255,6 +256,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   wallets,
   connecting,
   error,
+  pendingPoolInvite,
   onConnect,
   onBack,
 }) => {
@@ -534,6 +536,19 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               )}
             </div>
 
+            {pendingPoolInvite && (
+              <div className="rounded-2xl bg-[#F16A2E]/16 border border-[#F16A2E]/40 px-4 py-3 flex items-start gap-2.5 text-xs text-white max-w-md mx-auto text-left">
+                <Lock className="w-4 h-4 text-[#F16A2E] shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="font-bold">Connect wallet to preview pool invite</div>
+                  <p className="text-white/75 mt-0.5 leading-relaxed">
+                    Invite <span className="font-mono text-[#FF9B6B]">{pendingPoolInvite}</span>{' '}
+                    opens immediately after sign-in.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {error && (
               <div
                 role="alert"
@@ -770,6 +785,21 @@ export const AuthPage: React.FC<AuthPageProps> = ({
             className="flex-1 min-w-0 flex flex-col justify-center py-2 lg:py-4"
           >
             <div className="w-full space-y-6 lg:space-y-7">
+              {pendingPoolInvite && (
+                <div className="rounded-2xl bg-[#F16A2E]/14 border border-[#F16A2E]/35 px-4 py-3 flex items-start gap-3">
+                  <Lock className="w-4 h-4 text-[#F16A2E] shrink-0 mt-0.5" />
+                  <div className="min-w-0 text-xs">
+                    <div className="font-bold text-white">
+                      Connect a wallet to preview pool invite
+                    </div>
+                    <p className="text-white/70 mt-0.5 leading-relaxed">
+                      Target pool <span className="font-mono text-[#FF9B6B]">{pendingPoolInvite}</span>{' '}
+                      opens automatically with full rules, traction, and daily alarm setup once you sign in.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Heading */}
               <div className="space-y-3">
                 <h1 className="font-display text-3xl lg:text-4xl xl:text-[44px] font-extrabold text-white tracking-tight leading-[1.08]">

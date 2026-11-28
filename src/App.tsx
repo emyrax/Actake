@@ -8,16 +8,17 @@ import {
   Settings,
   Wallet,
 } from 'lucide-react';
-import { Transaction } from '@solana/web3.js';
 import {
   AlarmSettings,
   AppTab,
   CelebrationReceipt,
   DevnetSyncState,
   DiscoveredWalletOption,
+  GeoHuntZone,
   GlobalActivitySummary,
   HabitCategory,
   HistoryEntry,
+  PoolTractionSummary,
   RandomizedTargetPrompt,
   SquadPool,
   StakeCommitment,
@@ -26,7 +27,6 @@ import {
   VerificationResult,
   WalletSession,
 } from './types/actake';
-import { VerifyGeoDropClaimResponse } from './types/geodrops';
 import {
   clearWalletSession,
   connectWalletWithSiws,
@@ -43,7 +43,7 @@ import {
   buildDevnetExplorerTxUrl,
   buildDevnetSolscanTxUrl,
   buildSquadBlinkUrl,
-  CONFIGURED_CLIENT_ESCROW_WALLET,
+  buildSquadLobbyUrl,
   CONFIGURED_CLIENT_TREASURY_WALLET,
   deriveEscrowPoolPda,
   fetchDevnetTelemetry,
@@ -66,6 +66,7 @@ import {
 } from './data/localStore';
 import { alarmAudio } from './utils/alarmAudio';
 import { formatClockTime12h } from './utils/timeUtils';
+import { derivePoolInviteCode, parsePoolInviteInput } from './utils/poolLinks';
 import { safeFetchJson } from './utils/safeFetchJson';
 import { BrandMark } from './components/BrandMark';
 import { ActakeLandingPage } from './components/landing/ActakeLandingPage';
@@ -81,20 +82,25 @@ import { CelebrationView } from './components/CelebrationView';
 import { AlarmSettingsModal } from './components/AlarmSettingsModal';
 import { WalletSheet } from './components/WalletSheet';
 import { PollarModal } from './components/PollarModal';
-import { SquadLobbyView } from './components/SquadLobbyView';
+import { LobbyPool, SquadLobbyView } from './components/SquadLobbyView';
 import { ReadinessDrawer } from './components/ReadinessDrawer';
 import { MascotLoader } from './components/MascotDisplay';
 import { ToastHost, ToastMessage, ToastTone } from './components/UiPrimitives';
 
-function readPoolIdFromPathname(): string | null {
+function readInitialPoolTargetFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
-  const match = window.location.pathname.match(/^\/squad\/([^/]+)\/?$/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function isHuntsPathname(): boolean {
-  if (typeof window === 'undefined') return false;
-  return /^\/hunts\/?$/i.test(window.location.pathname);
+  const pathMatch = window.location.pathname.match(/^\/squad\/([^/]+)\/?$/);
+  if (pathMatch?.[1]) {
+    return decodeURIComponent(pathMatch[1]);
+  }
+  const params = new URLSearchParams(window.location.search);
+  const queryTarget =
+    params.get('code') || params.get('pool') || params.get('invite');
+  if (queryTarget) {
+    const parsed = parsePoolInviteInput(queryTarget);
+    return parsed?.token || queryTarget.trim();
+  }
+  return null;
 }
 
 const NAV_ITEMS: Array<{
@@ -128,14 +134,15 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, []);
 
-  const [activeTab, setActiveTab] = useState<AppTab>(() => (isHuntsPathname() ? 'hunts' : 'home'));
+  const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [pendingExplorePreset, setPendingExplorePreset] = useState<ExploreHabitPreset | null>(null);
   const [activeLobbyPoolId, setActiveLobbyPoolId] = useState<string | null>(() =>
-    readPoolIdFromPathname()
+    readInitialPoolTargetFromUrl()
   );
   const [globalActivity, setGlobalActivity] = useState<GlobalActivitySummary | null>(null);
   const [globalActivityLoading, setGlobalActivityLoading] = useState<boolean>(true);
   const [globalActivityError, setGlobalActivityError] = useState<string | null>(null);
+  const [tractionByPoolId, setTractionByPoolId] = useState<Record<string, PoolTractionSummary>>({});
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [userData, setUserData] = useState<PersistedUserData | null>(() =>
@@ -317,13 +324,10 @@ export default function App() {
     activePollarAddress,
   ]);
 
-  // Sync browser back/forward navigation for /squad/:poolId and /hunts URLs
+  // Sync browser back/forward navigation for /squad/:poolId and ?code=... URLs
   useEffect(() => {
     const onPopState = () => {
-      setActiveLobbyPoolId(readPoolIdFromPathname());
-      if (isHuntsPathname()) {
-        setActiveTab('hunts');
-      }
+      setActiveLobbyPoolId(readInitialPoolTargetFromUrl());
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -407,6 +411,194 @@ export default function App() {
       });
     },
     [wallet]
+  );
+
+  const joinedPoolIdsKey = useMemo(() => {
+    if (!userData) return '';
+    return Array.from(
+      new Set(
+        userData.stakes
+          .map((s) => s.poolId)
+          .filter((id): id is string => Boolean(id))
+      )
+    )
+      .sort()
+      .join(',');
+  }, [userData?.stakes]);
+
+  const refreshPoolTractions = useCallback(async (idsCsv: string) => {
+    if (!idsCsv) return;
+    try {
+      const resp = await fetch(`/api/pools/traction?ids=${encodeURIComponent(idsCsv)}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data?.tractionByPoolId && typeof data.tractionByPoolId === 'object') {
+        setTractionByPoolId((prev) => ({
+          ...prev,
+          ...data.tractionByPoolId,
+        }));
+      }
+    } catch {
+      // non-fatal
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!wallet || !joinedPoolIdsKey) return;
+    void refreshPoolTractions(joinedPoolIdsKey);
+  }, [wallet?.publicKey, joinedPoolIdsKey, refreshPoolTractions]);
+
+  const handlePoolJoined = useCallback(
+    (payload: {
+      pool: LobbyPool;
+      traction?: PoolTractionSummary;
+      txSignature: string;
+      broadcastedOnChain: boolean;
+      explorerUrl?: string;
+      solscanUrl?: string;
+    }) => {
+      if (!wallet) return;
+      const { pool, traction, txSignature, broadcastedOnChain, explorerUrl, solscanUrl } = payload;
+      const inviteCode = pool.inviteCode || derivePoolInviteCode(pool.id, pool.title);
+      const tokenCfg = TOKEN_CONFIGS[pool.tokenSymbol];
+      const timeLabel = formatClockTime12h(pool.alarmHour, pool.alarmMinute).full;
+
+      if (traction) {
+        setTractionByPoolId((prev) => ({
+          ...prev,
+          [pool.id]: traction,
+        }));
+      }
+
+      updateUserData((prev) => {
+        const alreadyActive = prev.stakes.some(
+          (s) => s.poolId === pool.id && (s.status === 'locked' || s.status === 'verified')
+        );
+
+        const nextStakes = alreadyActive
+          ? prev.stakes.map((s) =>
+              s.poolId === pool.id
+                ? {
+                    ...s,
+                    inviteCode,
+                    squadName: pool.title,
+                    totalDays: pool.totalDays,
+                    alarmHour: pool.alarmHour,
+                    alarmMinute: pool.alarmMinute,
+                  }
+                : s
+            )
+          : [
+              {
+                id: `pool-${pool.id}-${Date.now()}`,
+                poolId: pool.id,
+                inviteCode,
+                categoryId: pool.categoryId || 'morning_wakeup',
+                categoryName: pool.title,
+                environmentHint:
+                  pool.environmentHint || 'Daily randomized household or gym proof',
+                frequencyLabel: `${pool.totalDays}-Day Team Pool`,
+                amount: pool.stakeAmount,
+                token: pool.tokenSymbol,
+                protocolFeePct: tokenCfg.protocolFeePct,
+                alarmHour: pool.alarmHour,
+                alarmMinute: pool.alarmMinute,
+                alarmSound: prev.alarmSettings.selectedSound,
+                totalDays: pool.totalDays,
+                escrowPda: pool.poolPubkey,
+                escrowWallet: treasuryConfig?.escrowWallet || undefined,
+                treasuryWallet:
+                  treasuryConfig?.treasuryWallet || CONFIGURED_CLIENT_TREASURY_WALLET || undefined,
+                joinTxSignature: txSignature,
+                paidVia: (wallet.connectionKind === 'pollar' ? 'pollar' : 'solana-tx') as
+                  | 'pollar'
+                  | 'solana-tx',
+                onchainConfirmed: broadcastedOnChain,
+                explorerUrl,
+                solscanUrl,
+                recentBlockhash:
+                  devnet.blockhash || 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N',
+                createdAt: Date.now(),
+                status: 'locked' as const,
+                squadName: pool.title,
+                slashedBonusEstimate: Number(
+                  Math.max(
+                    pool.stakeAmount * 0.2,
+                    pool.slashedPotAvailable / Math.max(1, pool.participantCount)
+                  ).toFixed(2)
+                ),
+              },
+              ...prev.stakes,
+            ];
+
+        const hasSquad = prev.squads.some((sq) => sq.id === pool.id);
+        const nextSquads = hasSquad
+          ? prev.squads.map((sq) =>
+              sq.id === pool.id
+                ? {
+                    ...sq,
+                    inviteCode,
+                    memberCount: Math.max(sq.memberCount, pool.participantCount),
+                    totalPot: Math.max(sq.totalPot, pool.totalStaked),
+                    slashedPot: Math.max(sq.slashedPot, pool.slashedPotAvailable),
+                  }
+                : sq
+            )
+          : [
+              {
+                id: pool.id,
+                inviteCode,
+                name: pool.title,
+                categoryLabel: `Team Pool · ${pool.totalDays}-Day Cycle`,
+                durationDays: pool.totalDays,
+                alarmTimeLabel: timeLabel,
+                alarmHour: pool.alarmHour,
+                alarmMinute: pool.alarmMinute,
+                stakeAmount: pool.stakeAmount,
+                token: pool.tokenSymbol,
+                memberCount: pool.participantCount,
+                checkedInPct: traction?.checkedInPct ?? 0,
+                totalPot: pool.totalStaked,
+                slashedPot: pool.slashedPotAvailable,
+                blinkUrl: buildSquadBlinkUrl({
+                  poolId: pool.id,
+                  squadName: pool.title,
+                  amount: pool.stakeAmount,
+                  token: pool.tokenSymbol,
+                  alarmTime: timeLabel,
+                  escrowPda: pool.poolPubkey,
+                }),
+                lobbyUrl: buildSquadLobbyUrl(pool.id),
+                feed: [],
+              },
+              ...prev.squads,
+            ];
+
+        return {
+          ...prev,
+          stakes: nextStakes,
+          squads: nextSquads,
+        };
+      });
+
+      void refreshPoolTractions(pool.id);
+      void refreshGlobalActivity();
+      pushToast(
+        'success',
+        'Joined Pool & Added Alarm',
+        `${pool.title} (${timeLabel}) is now on your Today alarms with live team traction.`
+      );
+    },
+    [
+      wallet,
+      treasuryConfig?.escrowWallet,
+      treasuryConfig?.treasuryWallet,
+      devnet.blockhash,
+      updateUserData,
+      refreshPoolTractions,
+      refreshGlobalActivity,
+      pushToast,
+    ]
   );
 
   // Live 1-second clock ticker
@@ -555,6 +747,7 @@ export default function App() {
   const triggerAlarmForStake = useCallback(
     (stake: StakeCommitment) => {
       if (ringingStake || inLiveCamera || celebrationReceipt) return;
+      setRingingPoolId(stake.poolId);
       setRingingStake(stake);
       setInLiveCamera(false);
       setAlarmMuted(false);
@@ -1080,6 +1273,10 @@ export default function App() {
     setRingingPoolId(undefined);
     setActiveChallenge(null);
     setCelebrationReceipt(receipt);
+    const verifiedPoolTarget = ringingPoolId || ringingStake.poolId;
+    if (verifiedPoolTarget) {
+      void refreshPoolTractions(verifiedPoolTarget);
+    }
   };
 
   // Sign & broadcast actake_escrow::claim_payout on Celebration screen, routing 1.5% USDC protocol fee on-chain to Treasury
@@ -1250,7 +1447,8 @@ export default function App() {
             )
           : 0;
       try {
-        const quoteResp = await fetch(`/api/pools/${encodeURIComponent(stake.id)}/settle`, {
+        const settlePoolTarget = stake.poolId || stake.id;
+        const quoteResp = await fetch(`/api/pools/${encodeURIComponent(settlePoolTarget)}/settle`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1324,7 +1522,7 @@ export default function App() {
         claimSolscanUrl = claimResult.solscanUrl;
       }
 
-      void fetch(`/api/pools/${encodeURIComponent(stake.id)}/settle`, {
+      void fetch(`/api/pools/${encodeURIComponent(stake.poolId || stake.id)}/settle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1336,6 +1534,9 @@ export default function App() {
         }),
       }).then(() => {
         void refreshTreasurySummary();
+        if (stake.poolId) {
+          void refreshPoolTractions(stake.poolId);
+        }
       });
 
       const historyEntry: HistoryEntry = {
@@ -1495,6 +1696,9 @@ export default function App() {
 
       void refreshGlobalActivity();
       void refreshTreasurySummary();
+      if (stake.poolId) {
+        void refreshPoolTractions(stake.poolId);
+      }
       if (slashTransfer.broadcastedOnChain) {
         void syncDevnet(wallet.publicKey);
       }
@@ -1515,129 +1719,35 @@ export default function App() {
     }
   };
 
-  // Fund a new GeoDrop AR Scavenger Hunt pool on Solana Devnet directly to Actake Escrow
-  const handleFundGeoDropEscrow = async (params: {
-    token: 'SKR' | 'USDC';
-    totalPoolAmount: number;
-    title: string;
-    landmarkName: string;
-  }) => {
-    if (!wallet) {
-      throw new Error('Connect a Solana wallet before creating a GeoDrop hunt.');
-    }
-    const [recentBlockhash, escrowPda] = await Promise.all([
-      fetchLatestDevnetBlockhash(),
-      deriveEscrowPoolPda(wallet.publicKey, `geodrop-${Date.now()}`),
-    ]);
-
-    const depositTarget = resolveStakeDepositDestination({
-      poolPda: escrowPda,
-      runtimeEscrowWallet: treasuryConfig?.escrowWallet,
-    });
-
-    if (!depositTarget.safeForRealTokens) {
-      throw new Error(
-        'Set ACTAKE_ESCROW_WALLET (public Solana address) in your environment variables before funding a GeoDrop hunt.'
-      );
-    }
-
-    const transferResult = await executeDirectOnChainTransfer({
-      instructionType: 'join_pool',
-      destination: depositTarget.destination,
-      token: params.token,
-      usdAmount: params.totalPoolAmount,
-      escrowPda,
-      escrowWallet: depositTarget.destination,
-      treasuryWallet: treasuryConfig?.treasuryWallet || CONFIGURED_CLIENT_TREASURY_WALLET,
-      recentBlockhash,
-      metadata: {
-        kind: 'geodrop_hunt',
-        title: params.title.slice(0, 32),
-        landmark: params.landmarkName.slice(0, 32),
-      },
-    });
-
-    void refreshTreasurySummary();
-    if (transferResult.broadcastedOnChain) {
-      void syncDevnet(wallet.publicKey);
-    }
-
-    return {
-      signature: transferResult.signature,
-      escrowWallet: depositTarget.destination,
-      settledAsset: transferResult.settledAsset,
-      settledAmount: transferResult.settledAmount,
-      broadcastedOnChain: transferResult.broadcastedOnChain,
+  // Geo-Hunt proof launch (triggers live camera verification with hunt target)
+  const handleLaunchGeoProof = (hunt: GeoHuntZone) => {
+    if (!wallet || !userData) return;
+    const huntStake: StakeCommitment = {
+      id: `hunt-${hunt.id}-${Date.now()}`,
+      categoryId: 'outdoors_grass',
+      categoryName: hunt.title,
+      environmentHint: `${hunt.title} geofence location (${hunt.targetItemHint})`,
+      amount: 15,
+      token: 'USDC',
+      protocolFeePct: 1.5,
+      alarmHour: new Date().getHours(),
+      alarmMinute: new Date().getMinutes(),
+      alarmSound: userData.alarmSettings.selectedSound,
+      escrowPda: `ACTKGeoHunt${hunt.id.slice(-6)}PoolPDA`,
+      joinTxSignature: `GeoHuntJoin${Date.now()}`,
+      recentBlockhash: devnet.blockhash || 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N',
+      createdAt: Date.now(),
+      status: 'ringing',
+      slashedBonusEstimate: 6.5,
     };
+
+    setRingingStake(huntStake);
+    setAlarmMuted(true); // Geo-hunt camera proof doesn't blast alarm audio
+    requestChallengeForStake(huntStake);
   };
 
-  // Sign & broadcast server-built Oracle Ed25519 claim_geodrop transaction via Seeker Seed Vault / connected wallet
-  const handleSignGeoDropClaimTx = async (
-    serializedTxBase64: string,
-    _claimMeta: VerifyGeoDropClaimResponse
-  ) => {
-    if (!wallet) {
-      throw new Error('Connect a Solana wallet to sign and claim this GeoDrop chest.');
-    }
-    const binaryStr = window.atob(serializedTxBase64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    const tx = Transaction.from(bytes);
-    const txResult = await signActakeTransaction(tx, wallet);
-    void refreshTreasurySummary();
-    if (txResult.broadcastedOnChain) {
-      void syncDevnet(wallet.publicKey);
-    }
-    return {
-      signature: txResult.signature,
-      broadcastedOnChain: txResult.broadcastedOnChain,
-      explorerUrl: txResult.explorerUrl,
-      solscanUrl: txResult.solscanUrl || buildDevnetSolscanTxUrl(txResult.signature),
-    };
-  };
-
-  // Allow viewing a shared /squad/:poolId web lobby even before wallet connect
+  // Require wallet connection before previewing or joining a shared pool link/code
   if (!wallet || !userData) {
-    if (activeLobbyPoolId) {
-      return (
-        <div className="min-h-screen actake-canvas text-[#111114] flex flex-col">
-          <header className="sticky top-0 z-30 bg-[#FFF4EE]/90 backdrop-blur-md border-b border-[#F2E2D8]">
-            <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
-              <button type="button" onClick={exitSquadLobby} className="text-left">
-                <BrandMark size="md" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleConnectWallet('pollar:connect')}
-                className="min-h-[40px] px-4 py-2 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-semibold whitespace-nowrap transition-colors"
-              >
-                Sign In with Pollar
-              </button>
-            </div>
-          </header>
-          <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
-            <SquadLobbyView
-              poolId={activeLobbyPoolId}
-              wallet={null}
-              onBack={exitSquadLobby}
-              onRequestConnectWallet={() => handleConnectWallet('pollar:connect')}
-              onLaunchBrowserCheckin={() => handleConnectWallet('pollar:connect')}
-            />
-          </main>
-          {pollarModalMode && (
-            <PollarModal
-              mode={pollarModalMode}
-              onFallbackVault={() => void handleConnectWallet('vault:browser-ed25519')}
-              onClose={() => setPollarModalMode(null)}
-            />
-          )}
-          <ToastHost toasts={toasts} onDismiss={dismissToast} />
-        </div>
-      );
-    }
-
     return (
       <>
         {bootSplash && (
@@ -1656,6 +1766,7 @@ export default function App() {
           platform={platform}
           connecting={connectingWallet}
           error={walletError}
+          pendingPoolInvite={activeLobbyPoolId}
           onConnect={handleConnectWallet}
         />
         {connectingWallet && (
@@ -1712,7 +1823,7 @@ export default function App() {
                   onClick={() => {
                     setActiveLobbyPoolId(null);
                     setActiveTab(item.id);
-                    window.history.pushState({}, '', item.id === 'hunts' ? '/hunts' : '/');
+                    window.history.pushState({}, '', '/');
                   }}
                   className={`min-h-[44px] px-3.5 py-2 rounded-full inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
                     active
@@ -1746,6 +1857,13 @@ export default function App() {
           <SquadLobbyView
             poolId={activeLobbyPoolId}
             wallet={wallet}
+            isInPersonalAlarms={userData.stakes.some(
+              (s) =>
+                (s.poolId === activeLobbyPoolId ||
+                  (s.inviteCode &&
+                    s.inviteCode.toUpperCase() === activeLobbyPoolId.toUpperCase())) &&
+                (s.status === 'locked' || s.status === 'verified')
+            )}
             onBack={exitSquadLobby}
             onRequestConnectWallet={() => setWalletSheetOpen(true)}
             onLaunchBrowserCheckin={(lobbyStake, poolId) => {
@@ -1753,6 +1871,14 @@ export default function App() {
               setRingingStake(lobbyStake);
               setAlarmMuted(true);
               requestChallengeForStake(lobbyStake);
+            }}
+            onPoolJoined={handlePoolJoined}
+            onGoToToday={() => {
+              setActiveLobbyPoolId(null);
+              setActiveTab('home');
+              if (typeof window !== 'undefined') {
+                window.history.pushState({}, '', '/');
+              }
             }}
           />
         ) : (
@@ -1775,10 +1901,10 @@ export default function App() {
                 globalActivity={globalActivity}
                 globalActivityLoading={globalActivityLoading}
                 globalActivityError={globalActivityError}
+                tractionByPoolId={tractionByPoolId}
                 onRetryGlobalActivity={() => void refreshGlobalActivity()}
                 onRefreshDevnet={() => void syncDevnet(wallet.publicKey, true)}
                 onOpenMissions={() => setActiveTab('missions')}
-                onOpenHunts={() => setActiveTab('hunts')}
                 onOpenAlarmSettings={() => setAlarmSettingsOpen(true)}
                 onOpenPollarFund={handleOpenPollarFund}
                 onOpenWalletSheet={() => setWalletSheetOpen(true)}
@@ -1816,15 +1942,7 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'hunts' && (
-              <HuntsView
-                walletPubkey={wallet.publicKey}
-                escrowWallet={treasuryConfig?.escrowWallet || CONFIGURED_CLIENT_ESCROW_WALLET}
-                onFundHuntEscrow={handleFundGeoDropEscrow}
-                onSignClaimTx={handleSignGeoDropClaimTx}
-                onNotify={pushToast}
-              />
-            )}
+            {activeTab === 'hunts' && <HuntsView onLaunchGeoProof={handleLaunchGeoProof} />}
 
             {activeTab === 'squads' && (
               <SquadsView
@@ -1869,6 +1987,7 @@ export default function App() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       id: squad.id,
+                      inviteCode: squad.inviteCode,
                       title: squad.name,
                       creatorPubkey: wallet.publicKey,
                       tokenSymbol: squad.token,
@@ -1931,7 +2050,7 @@ export default function App() {
                 onClick={() => {
                   setActiveLobbyPoolId(null);
                   setActiveTab(item.id);
-                  window.history.pushState({}, '', item.id === 'hunts' ? '/hunts' : '/');
+                  window.history.pushState({}, '', '/');
                 }}
                 className={`min-h-[44px] rounded-full flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 ${
                   active

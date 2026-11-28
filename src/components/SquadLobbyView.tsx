@@ -8,19 +8,23 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Copy,
   Crown,
   Flame,
   Info,
+  Link2,
   Loader2,
   Share2,
   ShieldCheck,
   ThumbsUp,
   Trophy,
+  Users,
   Wallet,
   XCircle,
 } from 'lucide-react';
 import {
   LiveCheckinRecord,
+  PoolTractionSummary,
   StakeCommitment,
   TokenType,
   WalletSession,
@@ -28,14 +32,17 @@ import {
 import {
   buildActakeEscrowTransaction,
   buildSquadBlinkUrl,
+  buildSquadLobbyUrl,
   fetchLatestDevnetBlockhash,
 } from '../solana/actakeEscrow';
 import { shortenAddress, signActakeTransaction } from '../solana/walletManager';
+import { derivePoolInviteCode } from '../utils/poolLinks';
 import { MascotDisplay } from './MascotDisplay';
 import { EmptyState, ErrorStateCard, LobbyLayoutSkeleton } from './UiPrimitives';
 
-interface LobbyPool {
+export interface LobbyPool {
   id: string;
+  inviteCode?: string;
   poolPubkey: string;
   title: string;
   categoryId: string;
@@ -64,9 +71,19 @@ interface LobbyParticipant {
 interface SquadLobbyViewProps {
   poolId: string;
   wallet: WalletSession | null;
+  isInPersonalAlarms?: boolean;
   onBack: () => void;
   onRequestConnectWallet: () => void;
   onLaunchBrowserCheckin: (stake: StakeCommitment, poolId: string) => void;
+  onPoolJoined?: (payload: {
+    pool: LobbyPool;
+    traction?: PoolTractionSummary;
+    txSignature: string;
+    broadcastedOnChain: boolean;
+    explorerUrl?: string;
+    solscanUrl?: string;
+  }) => void;
+  onGoToToday?: () => void;
 }
 
 function formatAlarm12h(hour: number, minute: number): string {
@@ -78,19 +95,25 @@ function formatAlarm12h(hour: number, minute: number): string {
 export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
   poolId,
   wallet,
+  isInPersonalAlarms = false,
   onBack,
   onRequestConnectWallet,
   onLaunchBrowserCheckin,
+  onPoolJoined,
+  onGoToToday,
 }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pool, setPool] = useState<LobbyPool | null>(null);
   const [participants, setParticipants] = useState<LobbyParticipant[]>([]);
   const [checkins, setCheckins] = useState<LiveCheckinRecord[]>([]);
+  const [traction, setTraction] = useState<PoolTractionSummary | null>(null);
 
   const [joining, setJoining] = useState(false);
   const [joinNotice, setJoinNotice] = useState<string | null>(null);
   const [copiedShare, setCopiedShare] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [aboutExpanded, setAboutExpanded] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'verified' | 'slashed'>('all');
 
@@ -130,6 +153,7 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
       setPool(data.pool);
       setParticipants(data.participants || []);
       setCheckins(data.checkins || []);
+      setTraction(data.traction || null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load squad lobby.');
     } finally {
@@ -142,7 +166,7 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
   }, [loadLobby]);
 
   const alreadyJoined = Boolean(
-    wallet && participants.some((p) => p.userPubkey === wallet.publicKey)
+    isInPersonalAlarms || (wallet && participants.some((p) => p.userPubkey === wallet.publicKey))
   );
 
   const handleMatchAndJoin = async () => {
@@ -165,7 +189,8 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
         amount: pool.stakeAmount,
         metadata: { poolId: pool.id, source: 'web-squad-lobby' },
       });
-      const { signature } = await signActakeTransaction(tx, wallet);
+      const signResult = await signActakeTransaction(tx, wallet);
+      const { signature, broadcastedOnChain, explorerUrl, solscanUrl } = signResult;
 
       const resp = await fetch(`/api/pools/${encodeURIComponent(pool.id)}/join`, {
         method: 'POST',
@@ -180,8 +205,18 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
         const body = await resp.json().catch(() => ({}));
         throw new Error(body.error || 'Failed to record pool join.');
       }
+      const joinData = await resp.json();
+      const resolvedPool: LobbyPool = joinData.pool || pool;
+      onPoolJoined?.({
+        pool: resolvedPool,
+        traction: joinData.traction || traction || undefined,
+        txSignature: signature,
+        broadcastedOnChain,
+        explorerUrl,
+        solscanUrl,
+      });
       setJoinNotice(
-        `Matched $${pool.stakeAmount} ${pool.tokenSymbol} & joined pool (${signature.slice(0, 14)}...).`
+        `Matched $${resolvedPool.stakeAmount} ${resolvedPool.tokenSymbol} & added "${resolvedPool.title}" to your personal alarms.`
       );
       await loadLobby();
     } catch (err) {
@@ -304,10 +339,48 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
   }
 
   const deadlineLabel = formatAlarm12h(pool.alarmHour, pool.alarmMinute);
+  const inviteCode = pool.inviteCode || derivePoolInviteCode(pool.id, pool.title);
+  const directLobbyLink = buildSquadLobbyUrl(pool.id);
+
+  const verifiedTractionCount =
+    traction?.verifiedCount ??
+    participants.filter((p) => !p.isSlashed && p.checkinsCompleted > 0).length;
+  const activeTractionCount =
+    traction?.activeCount ??
+    participants.filter((p) => !p.isSlashed && p.checkinsCompleted === 0).length;
+  const slashedTractionCount =
+    traction?.slashedCount ?? participants.filter((p) => p.isSlashed).length;
+  const totalTractionMembers =
+    traction?.totalMembers ?? Math.max(pool.participantCount, participants.length);
+  const verifiedPctToday =
+    traction?.checkedInPct ??
+    (participants.length > 0
+      ? Math.min(100, Math.round((verifiedTractionCount / participants.length) * 100))
+      : 0);
+
+  const handleCopyInviteCode = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteCode);
+      setCopiedCode(true);
+      window.setTimeout(() => setCopiedCode(false), 2000);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
+
+  const handleCopyDirectLink = async () => {
+    try {
+      await navigator.clipboard.writeText(directLobbyLink);
+      setCopiedLink(true);
+      window.setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
 
   return (
     <div className="space-y-6 pb-10">
-      {/* Top Navigation Row with Icon-Only Share Button */}
+      {/* Top Navigation Row with Invite Code, Link Copy & Blink Share */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
@@ -318,19 +391,47 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
           <span>Back to Explore</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => void handleSharePool()}
-          aria-label={copiedShare ? 'Pool link copied' : 'Share pool'}
-          title={copiedShare ? 'Link copied' : 'Share pool'}
-          className="w-11 h-11 rounded-full bg-white border border-[#EFE2D9] hover:border-[#F16A2E]/60 hover:bg-[#FFF9F5] text-[#111114] inline-flex items-center justify-center transition-colors shadow-[0_4px_14px_rgba(24,20,18,0.04)] shrink-0"
-        >
-          {copiedShare ? (
-            <Check className="w-4 h-4 text-[#16A34A]" />
-          ) : (
-            <Share2 className="w-4 h-4 text-[#111114]" />
-          )}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleCopyInviteCode()}
+            className="min-h-[44px] px-3.5 py-2 rounded-full bg-white border border-[#EFE2D9] hover:border-[#F16A2E]/60 hover:bg-[#FFF9F5] text-xs font-mono font-bold text-[#111114] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+          >
+            {copiedCode ? (
+              <Check className="w-3.5 h-3.5 text-[#16A34A]" />
+            ) : (
+              <Copy className="w-3.5 h-3.5 text-[#F16A2E]" />
+            )}
+            <span>{copiedCode ? 'Code Copied' : `Code: ${inviteCode}`}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleCopyDirectLink()}
+            className="min-h-[44px] px-3.5 py-2 rounded-full bg-white border border-[#EFE2D9] hover:border-[#F16A2E]/60 hover:bg-[#FFF9F5] text-xs font-bold text-[#111114] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+          >
+            {copiedLink ? (
+              <Check className="w-3.5 h-3.5 text-[#16A34A]" />
+            ) : (
+              <Link2 className="w-3.5 h-3.5 text-[#F16A2E]" />
+            )}
+            <span>{copiedLink ? 'Link Copied' : 'Copy Link'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleSharePool()}
+            aria-label={copiedShare ? 'Pool Blink copied' : 'Share pool Blink'}
+            title={copiedShare ? 'Blink copied' : 'Share pool Blink'}
+            className="w-11 h-11 rounded-full bg-white border border-[#EFE2D9] hover:border-[#F16A2E]/60 hover:bg-[#FFF9F5] text-[#111114] inline-flex items-center justify-center transition-colors shadow-[0_4px_14px_rgba(24,20,18,0.04)] shrink-0"
+          >
+            {copiedShare ? (
+              <Check className="w-4 h-4 text-[#16A34A]" />
+            ) : (
+              <Share2 className="w-4 h-4 text-[#111114]" />
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Obsidian Squad Hero Banner */}
@@ -350,7 +451,8 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
             />
             <div className="space-y-2.5 min-w-0">
               <div className="text-xs font-semibold text-[#F16A2E]">
-                Solana Squad Lobby · Daily {deadlineLabel} Cutoff · {pool.totalDays}-Day Pool
+                Solana Squad Lobby · Daily {deadlineLabel} Cutoff · {pool.totalDays}-Day Pool · Code{' '}
+                <span className="font-mono text-white">{inviteCode}</span>
               </div>
               <h1 className="font-display text-2xl sm:text-4xl font-extrabold tracking-tight leading-tight">
                 {pool.title}
@@ -364,7 +466,7 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
                 <span aria-hidden="true">·</span>
                 <span className="text-[#FCA5A5]">${pool.slashedPotAvailable} Slashed Bonus</span>
                 <span aria-hidden="true">·</span>
-                <span>{pool.participantCount} Members</span>
+                <span>{totalTractionMembers} Members</span>
               </div>
               <div className="text-[11px] font-mono text-white/55 truncate">
                 Pool PDA: {pool.poolPubkey}
@@ -388,27 +490,80 @@ export const SquadLobbyView: React.FC<SquadLobbyViewProps> = ({
                 {!wallet
                   ? 'Connect Wallet to Join'
                   : alreadyJoined
-                    ? 'Stake Matched (Joined)'
+                    ? 'Joined · Added to Personal Alarms'
                     : `Match $${pool.stakeAmount} ${pool.tokenSymbol} & Join`}
               </span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleStartWebcamProof}
-              className="min-h-[48px] px-5 py-3 rounded-full bg-white text-[#111114] hover:bg-[#FFF4EE] text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors whitespace-nowrap"
-            >
-              <Camera className="w-4 h-4 text-[#F16A2E]" />
-              <span>Webcam Check-In</span>
-            </button>
+            {alreadyJoined && onGoToToday ? (
+              <button
+                type="button"
+                onClick={onGoToToday}
+                className="min-h-[48px] px-5 py-3 rounded-full bg-white text-[#111114] hover:bg-[#FFF4EE] text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors whitespace-nowrap"
+              >
+                <Clock className="w-4 h-4 text-[#F16A2E]" />
+                <span>View Personal Alarm</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleStartWebcamProof}
+                className="min-h-[48px] px-5 py-3 rounded-full bg-white text-[#111114] hover:bg-[#FFF4EE] text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors whitespace-nowrap"
+              >
+                <Camera className="w-4 h-4 text-[#F16A2E]" />
+                <span>Webcam Check-In</span>
+              </button>
+            )}
           </div>
         </div>
       </section>
 
+      {/* Live Team Traction Summary Strip */}
+      <section className="actake-card p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-extrabold text-[#111114] uppercase tracking-wider">
+            <Users className="w-4 h-4 text-[#F16A2E]" />
+            <span>Live Team Traction</span>
+          </div>
+          <span className="text-xs font-mono font-bold text-[#16A34A] tabular-nums">
+            {verifiedPctToday}% verified today · {totalTractionMembers} total members
+          </span>
+        </div>
+
+        <div className="h-2 w-full rounded-full bg-[#F7ECE6] overflow-hidden">
+          <div
+            className="h-full rounded-full bg-[#16A34A] transition-all"
+            style={{ width: `${verifiedPctToday}%` }}
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#6B6663] tabular-nums">
+          <span>
+            <strong className="text-[#16A34A]">{verifiedTractionCount} verified</strong> ·{' '}
+            <strong className="text-[#111114]">{activeTractionCount} active</strong> ·{' '}
+            <strong className="text-[#DC2626]">{slashedTractionCount} slashed</strong>
+          </span>
+          <span>
+            Daily {deadlineLabel} personal alarm syncs automatically on join
+          </span>
+        </div>
+      </section>
+
       {joinNotice && (
-        <div className="rounded-2xl bg-[#ECFDF5] border border-[#BBF7D0] px-4 py-3 text-xs font-medium text-[#166534] flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 shrink-0 text-[#16A34A]" />
-          <span>{joinNotice}</span>
+        <div className="rounded-2xl bg-[#ECFDF5] border border-[#BBF7D0] px-4 py-3 text-xs font-medium text-[#166534] flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <ShieldCheck className="w-4 h-4 shrink-0 text-[#16A34A]" />
+            <span>{joinNotice}</span>
+          </div>
+          {onGoToToday && (
+            <button
+              type="button"
+              onClick={onGoToToday}
+              className="min-h-[38px] px-4 py-1.5 rounded-full bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-bold whitespace-nowrap transition-colors"
+            >
+              View Personal Alarm on Today
+            </button>
+          )}
         </div>
       )}
 

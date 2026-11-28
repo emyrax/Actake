@@ -4,6 +4,8 @@ export type AppTab = 'home' | 'missions' | 'hunts' | 'squads' | 'history' | 'set
 
 export type AlarmSoundId = 'mayhem' | 'siren' | 'rooster' | 'baby' | 'buzzer';
 
+export type MascotThemeId = 'modern-minimalist' | 'retro-pixel' | 'playful-3d';
+
 export interface HabitCategory {
   id: string;
   name: string;
@@ -41,6 +43,9 @@ export interface StakeCommitment {
   recentBlockhash: string;
   createdAt: number;
   status: 'locked' | 'ringing' | 'verified' | 'claimed' | 'slashed';
+  poolId?: string;
+  inviteCode?: string;
+  totalDays?: number;
   squadName?: string;
   slashedBonusEstimate: number;
 }
@@ -147,6 +152,7 @@ export interface SquadMemberStanding {
 
 export interface SquadPool {
   id: string;
+  inviteCode?: string;
   name: string;
   description?: string;
   categoryLabel?: string;
@@ -166,6 +172,23 @@ export interface SquadPool {
   lobbyUrl?: string;
   members?: SquadMemberStanding[];
   feed: SquadFeedItem[];
+}
+
+export interface PoolTractionSummary {
+  poolId: string;
+  inviteCode: string;
+  title: string;
+  totalMembers: number;
+  verifiedCount: number;
+  activeCount: number;
+  slashedCount: number;
+  checkedInPct: number;
+  totalStaked: number;
+  slashedPotAvailable: number;
+  tokenSymbol: TokenType;
+  alarmHour: number;
+  alarmMinute: number;
+  totalDays: number;
 }
 
 export interface LiveCheckinRecord {

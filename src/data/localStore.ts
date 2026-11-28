@@ -141,6 +141,7 @@ export function createSeedUserData(_publicKey: string): PersistedUserData {
     squads: [
       {
         id: 'squad-7am-club',
+        inviteCode: '7AMCLUB',
         name: '7AM Campus Wake Club',
         categoryLabel: 'Morning Routine · 7-Day Sprint',
         description:
@@ -296,6 +297,7 @@ export function createSeedUserData(_publicKey: string): PersistedUserData {
       },
       {
         id: 'squad-skr-builders',
+        inviteCode: 'SKR6AM',
         name: 'Solana Builders 6AM SKR',
         categoryLabel: 'Builders & Fitness · 14-Day Cycle',
         description:

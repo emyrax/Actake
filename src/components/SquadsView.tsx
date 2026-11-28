@@ -10,9 +10,12 @@ import {
   ChevronUp,
   Clock,
   Compass,
+  Copy,
   Crown,
   Flame,
   Info,
+  Link2,
+  Loader2,
   Plus,
   Search,
   Share2,
@@ -26,6 +29,11 @@ import {
 } from 'lucide-react';
 import { SquadMemberStanding, SquadPool, TokenType } from '../types/actake';
 import { buildSquadBlinkUrl, buildSquadLobbyUrl } from '../solana/actakeEscrow';
+import {
+  derivePoolInviteCode,
+  looksLikePoolInviteOrLink,
+  parsePoolInviteInput,
+} from '../utils/poolLinks';
 import { MascotDisplay } from './MascotDisplay';
 import { EmptyState } from './UiPrimitives';
 
@@ -421,6 +429,9 @@ export const SquadsView: React.FC<SquadsViewProps> = ({
   const [leaderboardFilter, setLeaderboardFilter] = useState<LeaderboardFilter>('all');
   const [poolRightView, setPoolRightView] = useState<PoolRightView>('leaderboard');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
+  const [resolvingPool, setResolvingPool] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
   const [newName, setNewName] = useState('');
@@ -437,16 +448,45 @@ export const SquadsView: React.FC<SquadsViewProps> = ({
     }
   }, [openedPoolId]);
 
+  const parsedInvite = useMemo(() => parsePoolInviteInput(searchQuery), [searchQuery]);
+  const isInviteOrLinkQuery = useMemo(() => looksLikePoolInviteOrLink(searchQuery), [searchQuery]);
+
+  const handleResolvePoolLookup = async (rawQuery: string) => {
+    const trimmed = rawQuery.trim();
+    if (!trimmed) return;
+    setResolvingPool(true);
+    setResolveError(null);
+    try {
+      const resp = await fetch(`/api/pools/resolve?q=${encodeURIComponent(trimmed)}`);
+      const body = await resp.json().catch(() => ({}));
+      if (!resp.ok || !body?.pool?.id) {
+        throw new Error(body?.error || 'No accountability pool matched that link or invite code.');
+      }
+      onOpenSquadLobby(String(body.pool.id));
+    } catch (err) {
+      setResolveError(
+        err instanceof Error
+          ? err.message
+          : 'No accountability pool matched that link or invite code.'
+      );
+    } finally {
+      setResolvingPool(false);
+    }
+  };
+
   const q = searchQuery.trim().toLowerCase();
 
   const filteredSquads = useMemo(() => {
     if (!q) return squads;
     return squads.filter((s) => {
       const meta = resolvePoolMeta(s);
+      const code = (s.inviteCode || derivePoolInviteCode(s.id, s.name)).toLowerCase();
       return (
         s.name.toLowerCase().includes(q) ||
         s.token.toLowerCase().includes(q) ||
         s.alarmTimeLabel.toLowerCase().includes(q) ||
+        s.id.toLowerCase().includes(q) ||
+        code.includes(q) ||
         meta.description.toLowerCase().includes(q) ||
         meta.categoryLabel.toLowerCase().includes(q)
       );
@@ -566,6 +606,7 @@ export const SquadsView: React.FC<SquadsViewProps> = ({
 
     const squad: SquadPool = {
       id: slugId,
+      inviteCode: derivePoolInviteCode(slugId, trimmed),
       name: trimmed,
       categoryLabel: 'Custom Squad · 7-Day Sprint',
       description: customDescription,
@@ -643,7 +684,29 @@ export const SquadsView: React.FC<SquadsViewProps> = ({
             <span>Back to Pools</span>
           </button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const code = activeSquad.inviteCode || derivePoolInviteCode(activeSquad.id, activeSquad.name);
+                void navigator.clipboard?.writeText(code).then(() => {
+                  setCopiedCodeId(activeSquad.id);
+                  window.setTimeout(() => setCopiedCodeId(null), 2000);
+                });
+              }}
+              className="min-h-[44px] px-3.5 py-2 rounded-full bg-white border border-[#EFE2D9] hover:border-[#F16A2E]/60 hover:bg-[#FFF9F5] text-xs font-mono font-bold text-[#111114] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+            >
+              {copiedCodeId === activeSquad.id ? (
+                <Check className="w-3.5 h-3.5 text-[#16A34A]" />
+              ) : (
+                <Copy className="w-3.5 h-3.5 text-[#F16A2E]" />
+              )}
+              <span>
+                {copiedCodeId === activeSquad.id
+                  ? 'Code Copied'
+                  : `Code: ${activeSquad.inviteCode || derivePoolInviteCode(activeSquad.id, activeSquad.name)}`}
+              </span>
+            </button>
             <button
               type="button"
               onClick={() => void handleCopyBlink(activeSquad)}
@@ -1183,52 +1246,120 @@ export const SquadsView: React.FC<SquadsViewProps> = ({
         </button>
       </div>
 
-      {/* Search Bar with Clear Action + Rearranged Tabs (Templates first -> Social Feed -> Pools last) */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-[#877F7A] absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search templates, members, or community pools..."
-            aria-label="Search templates, members, or community pools"
-            className="w-full min-h-[44px] pl-11 pr-10 rounded-full bg-white border border-[#EFE2D9] text-sm text-[#111114] placeholder:text-[#9A938E] shadow-[0_4px_14px_rgba(24,20,18,0.04)] focus:outline-none focus:border-[#F16A2E]"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              aria-label="Clear search"
-              className="w-8 h-8 rounded-full hover:bg-[#FFF4EE] flex items-center justify-center text-[#877F7A] hover:text-[#111114] absolute right-1.5 top-1/2 -translate-y-1/2 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+      {/* Search Bar (also accepts Pool Links, Blink URLs & Invite Codes) + Tabs */}
+      <div className="space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (isInviteOrLinkQuery) {
+                void handleResolvePoolLookup(searchQuery);
+              }
+            }}
+            className="relative flex-1 max-w-lg"
+          >
+            <Search className="w-4 h-4 text-[#877F7A] absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                if (resolveError) setResolveError(null);
+              }}
+              placeholder="Search pools, or paste pool link / invite code (e.g. 7AMCLUB)..."
+              aria-label="Search templates, members, or paste pool link or invite code"
+              className="w-full min-h-[44px] pl-11 pr-10 rounded-full bg-white border border-[#EFE2D9] text-sm text-[#111114] placeholder:text-[#9A938E] shadow-[0_4px_14px_rgba(24,20,18,0.04)] focus:outline-none focus:border-[#F16A2E]"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setResolveError(null);
+                }}
+                aria-label="Clear search"
+                className="w-8 h-8 rounded-full hover:bg-[#FFF4EE] flex items-center justify-center text-[#877F7A] hover:text-[#111114] absolute right-1.5 top-1/2 -translate-y-1/2 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </form>
+
+          <div className="inline-flex items-center p-1 rounded-full bg-white border border-[#EFE2D9] shadow-[0_4px_14px_rgba(24,20,18,0.04)] self-start overflow-x-auto max-w-full">
+            {(
+              [
+                { id: 'templates', label: `Templates (${filteredPacks.length})` },
+                { id: 'feed', label: 'Social Feed' },
+                { id: 'community', label: `Pools (${filteredSquads.length})` },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setSection(tab.id)}
+                className={`min-h-[38px] px-4 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${
+                  section === tab.id
+                    ? 'bg-[#F16A2E] text-white'
+                    : 'text-[#6B6663] hover:text-[#111114]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="inline-flex items-center p-1 rounded-full bg-white border border-[#EFE2D9] shadow-[0_4px_14px_rgba(24,20,18,0.04)] self-start overflow-x-auto max-w-full">
-          {(
-            [
-              { id: 'templates', label: `Templates (${filteredPacks.length})` },
-              { id: 'feed', label: 'Social Feed' },
-              { id: 'community', label: `Pools (${filteredSquads.length})` },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setSection(tab.id)}
-              className={`min-h-[38px] px-4 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${
-                section === tab.id
-                  ? 'bg-[#F16A2E] text-white'
-                  : 'text-[#6B6663] hover:text-[#111114]'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {(isInviteOrLinkQuery || resolveError) && (
+          <div
+            className={`rounded-2xl border px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs ${
+              resolveError
+                ? 'bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]'
+                : 'bg-white border-[#EFE2D9] text-[#111114] shadow-[0_4px_14px_rgba(24,20,18,0.04)]'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              {resolveError ? (
+                <AlertCircle className="w-4 h-4 text-[#DC2626] shrink-0" />
+              ) : (
+                <Link2 className="w-4 h-4 text-[#F16A2E] shrink-0" />
+              )}
+              <div className="min-w-0">
+                {resolveError ? (
+                  <span className="font-semibold">{resolveError}</span>
+                ) : (
+                  <span>
+                    Pool {parsedInvite?.kind === 'url' ? 'link' : 'code'} detected:{' '}
+                    <span className="font-mono font-bold text-[#F16A2E]">
+                      {parsedInvite?.token}
+                    </span>{' '}
+                    — inspect rules, pot, and standings before joining.
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {isInviteOrLinkQuery && (
+              <button
+                type="button"
+                disabled={resolvingPool}
+                onClick={() => void handleResolvePoolLookup(searchQuery)}
+                className="min-h-[40px] px-4 py-1.5 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
+              >
+                {resolvingPool ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Resolving...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Preview Pool Details</span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* SECTION 1 (FIRST TAB): TEMPLATES, RECOMMENDED & TRENDING HABITS */}
@@ -1450,7 +1581,10 @@ export const SquadsView: React.FC<SquadsViewProps> = ({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-[11px] font-bold text-[#F16A2E]">
-                          {sqMeta.categoryLabel}
+                          {sqMeta.categoryLabel} · Code{' '}
+                          <span className="font-mono text-[#111114]">
+                            {sq.inviteCode || derivePoolInviteCode(sq.id, sq.name)}
+                          </span>
                         </div>
                         <h3 className="font-display text-lg font-extrabold text-[#111114] group-hover:text-[#F16A2E] transition-colors mt-0.5">
                           {sq.name}

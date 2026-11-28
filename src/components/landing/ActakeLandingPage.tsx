@@ -1,19 +1,14 @@
 import React, { useState } from 'react';
 import {
   ArrowRight,
-  Box,
   Camera,
   CheckCircle2,
   ChevronDown,
-  Compass,
   Flame,
-  MapPin,
   Smartphone,
   Users,
 } from 'lucide-react';
 import { DiscoveredWalletOption, PlatformCompatibility } from '../../types/actake';
-import geodropsArVisual from '../../assets/images/geodrops_ar_hunt_visual_1795864407970.jpg';
-import brandArStudioVisual from '../../assets/images/brand_ar_studio_showcase_1795864408496.jpg';
 import { AuthPage } from '../AuthPage';
 import { MascotDisplay } from '../MascotDisplay';
 import { ActakeLogo, AppleIcon, GooglePlayIcon } from './BrandIcons';
@@ -24,6 +19,7 @@ interface ActakeLandingPageProps {
   platform: PlatformCompatibility;
   connecting: boolean;
   error: string | null;
+  pendingPoolInvite?: string | null;
   onConnect: (walletId: string) => void;
 }
 
@@ -121,11 +117,7 @@ const FAQS = [
   },
   {
     q: 'Why stake with SKR versus USDC?',
-    a: 'SKR stakes carry a 0% protocol fee and a 1.2x ACT reputation multiplier for Solana Mobile / Seeker users, while USDC stakes offer stable dollar-denominated accountability with a 1.5% protocol fee.',
-  },
-  {
-    q: 'How can brands or communities launch a sponsored AR GeoDrop hunt?',
-    a: 'Open Hunts (/hunts), click Create Hunt, draw your real-world circle or polygon geofence on the map, and upload your logo or product image in Brand AR 3D Studio to render it with real 3D depth, convert it into an AI 3D sculpture, or upload your own .glb model.',
+    a: 'SKR stakes carry a 0% protocol fee and a 2x ACT reputation multiplier for Solana Mobile / Seeker users, while USDC stakes offer stable dollar-denominated accountability with a 1.5% protocol fee.',
   },
 ];
 
@@ -134,9 +126,11 @@ export const ActakeLandingPage: React.FC<ActakeLandingPageProps> = ({
   platform,
   connecting,
   error,
+  pendingPoolInvite,
   onConnect,
 }) => {
   const [connectOpen, setConnectOpen] = useState<boolean>(() => {
+    if (pendingPoolInvite) return true;
     if (typeof window === 'undefined') return false;
     return /^\/(auth|login|signin)\/?$/i.test(window.location.pathname);
   });
@@ -185,118 +179,6 @@ export const ActakeLandingPage: React.FC<ActakeLandingPageProps> = ({
                 </article>
               );
             })}
-          </div>
-        </div>
-      </section>
-
-      {/* GeoDrops AR Scavenger Hunts & Brand AR 3D Studio Showcase */}
-      <section
-        id="geodrops-ar"
-        className="py-20 sm:py-24 px-5 sm:px-8 bg-[#121318] text-white"
-      >
-        <div className="max-w-[1160px] mx-auto space-y-12">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-stretch">
-            {/* Left: Editorial Daylight AR Hunt Visual */}
-            <div className="lg:col-span-7 relative rounded-[30px] overflow-hidden border border-white/12 bg-[#1A1C23] min-h-[300px] sm:min-h-[380px] flex flex-col justify-end">
-              <img
-                src={geodropsArVisual}
-                alt="Explorer discovering a glowing 3D GeoDrop in augmented reality at a sunlit architectural plaza"
-                referrerPolicy="no-referrer"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0D0E12]/90 via-[#0D0E12]/35 to-transparent" />
-              <div className="relative z-10 p-6 sm:p-8 space-y-2.5">
-                <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-[#F4976C]">
-                  Full-Screen Map · Live AR · Voice AI Scout
-                </p>
-                <h2 className="text-[28px] sm:text-[36px] font-bold tracking-[-0.025em] leading-[1.12] text-white max-w-xl">
-                  Real-World GeoDrops AR Scavenger Hunts.
-                </h2>
-                <p className="text-[14.5px] text-white/80 leading-[1.6] max-w-xl">
-                  Navigate edge-to-edge full-screen geofence maps, talk live with your 🤖 AI Hunt
-                  Scout for spoken walking clues, and tap floating 3D drops in AR to unlock USDC or
-                  SKR on Solana Devnet.
-                </p>
-              </div>
-            </div>
-
-            {/* Right: Brand AR 3D Studio Visual & Invitation */}
-            <div className="lg:col-span-5 rounded-[30px] bg-[#1B1D25] border border-white/12 overflow-hidden flex flex-col justify-between">
-              <div className="relative h-[200px] sm:h-[220px] w-full bg-[#242630] overflow-hidden">
-                <img
-                  src={brandArStudioVisual}
-                  alt="Sculpted matte charcoal and gold 3D brand medallion and geometric relic rendered in Brand AR 3D Studio"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#1B1D25] via-transparent to-transparent" />
-              </div>
-
-              <div className="p-6 sm:p-7 pt-3 flex-1 flex flex-col justify-between gap-5">
-                <div className="space-y-2.5">
-                  <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-[#F4976C]">
-                    For Brands &amp; Communities
-                  </p>
-                  <h3 className="text-[22px] sm:text-[25px] font-bold tracking-[-0.02em] leading-[1.18] text-white">
-                    Turn Any Location Into a 3D Brand Activation.
-                  </h3>
-                  <p className="text-[14px] text-white/75 leading-[1.6]">
-                    Host sponsored AR hunts and interactive 3D advertisements using Actake&apos;s
-                    Brand AR 3D Studio—upload a 2D logo with real 3D depth, convert it into an AI 3D
-                    sculpture, or upload a custom <span className="font-mono text-white">.glb</span>{' '}
-                    model.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setConnectOpen(true)}
-                    className="actake-orange-cta min-h-[46px] px-6 rounded-full text-[14px] font-semibold text-white inline-flex items-center gap-2 cursor-pointer"
-                  >
-                    <span>Launch a GeoDrop</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                  <span className="text-[12px] text-white/60">
-                    Live GPS + Indoor Demo Mode
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 3 Quiet Unboxed Capability Columns */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2 border-t border-white/10">
-            <div className="pt-5 space-y-1.5">
-              <div className="inline-flex items-center gap-2 text-sm font-bold text-white">
-                <MapPin className="w-4 h-4 text-[#F4976C]" />
-                <span>Full-Screen Geofence Maps</span>
-              </div>
-              <p className="text-[13.5px] text-white/70 leading-relaxed">
-                Clean full-screen navigation with a quick guide pop-up and collapsed-by-default
-                clues so the map stays unobstructed on mobile.
-              </p>
-            </div>
-            <div className="pt-5 space-y-1.5">
-              <div className="inline-flex items-center gap-2 text-sm font-bold text-white">
-                <Compass className="w-4 h-4 text-[#4ADE80]" />
-                <span>Talking AI Hunt Scout (🤖)</span>
-              </div>
-              <p className="text-[13.5px] text-white/70 leading-relaxed">
-                Tap the AI emoji anytime on the map or radar to hear spoken directional tips and
-                landmark hints tailored to your live distance.
-              </p>
-            </div>
-            <div className="pt-5 space-y-1.5">
-              <div className="inline-flex items-center gap-2 text-sm font-bold text-white">
-                <Box className="w-4 h-4 text-[#FBBF24]" />
-                <span>3D Depth, AI 3D &amp; Custom .GLB</span>
-              </div>
-              <p className="text-[13.5px] text-white/70 leading-relaxed">
-                Brands choose between classic 3D chests, embossed 3D logo cards, Gemini AI-crafted
-                3D sculptures, or optional binary .glb models.
-              </p>
-            </div>
           </div>
         </div>
       </section>
@@ -498,7 +380,7 @@ export const ActakeLandingPage: React.FC<ActakeLandingPageProps> = ({
 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-[13.5px] text-[#718096]">
             <ActakeLogo />
-            <p>Actake — Social Accountability &amp; Real-World 3D AR GeoDrops on Solana Mobile.</p>
+            <p>Actake — Social Accountability &amp; Streak Escrow on Solana Mobile.</p>
           </div>
         </div>
       </footer>
@@ -510,6 +392,7 @@ export const ActakeLandingPage: React.FC<ActakeLandingPageProps> = ({
           platform={platform}
           connecting={connecting}
           error={error}
+          pendingPoolInvite={pendingPoolInvite}
           onConnect={(id) => {
             onConnect(id);
           }}

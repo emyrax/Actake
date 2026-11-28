@@ -32,6 +32,7 @@ import { formatClockTime12h } from '../utils/timeUtils';
 import { ALARM_SOUNDS } from '../utils/alarmAudio';
 import { MascotDisplay } from './MascotDisplay';
 import { ConfirmDialog } from './UiPrimitives';
+import { MASCOT_THEME_OPTIONS, useMascotTheme } from '../context/MascotThemeContext';
 
 interface SettingsViewProps {
   wallet: WalletSession;
@@ -87,6 +88,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [faqOpen, setFaqOpen] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [copiedKey, setCopiedKey] = useState<'escrow' | 'treasury' | null>(null);
+  const { mascotTheme, setMascotTheme } = useMascotTheme();
 
   const handleCopyAddress = async (kind: 'escrow' | 'treasury', address: string) => {
     try {
@@ -138,6 +140,73 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Mascot Visual Theme Toggle */}
+      <section className="actake-card p-5 space-y-3.5" aria-labelledby="mascot-theme-heading">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2
+              id="mascot-theme-heading"
+              className="font-display text-sm font-extrabold text-[#111114]"
+            >
+              Mascot Visual Theme
+            </h2>
+            <p className="text-xs text-[#6B6663]">
+              Choose how your Actake accountability buddy renders across the app
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-[#F16A2E] whitespace-nowrap shrink-0">
+            {MASCOT_THEME_OPTIONS.find((opt) => opt.id === mascotTheme)?.label}
+          </span>
+        </div>
+
+        <div
+          role="radiogroup"
+          aria-labelledby="mascot-theme-heading"
+          className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-1.5 rounded-2xl bg-[#FFF4EE] border border-[#E2D0C4]/70"
+        >
+          {MASCOT_THEME_OPTIONS.map((option) => {
+            const selected = mascotTheme === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setMascotTheme(option.id)}
+                className={`min-h-[56px] px-3 py-2.5 rounded-xl flex items-center gap-3 text-left transition-all duration-150 ${
+                  selected
+                    ? 'bg-[#111114] text-white shadow-sm'
+                    : 'bg-transparent text-[#111114] hover:bg-white/80'
+                }`}
+              >
+                <MascotDisplay
+                  variant={selected ? 'obsidian' : 'medallion'}
+                  size="xs"
+                  themeOverride={option.id}
+                  alt={`${option.label} preview`}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="font-display text-xs font-bold leading-tight whitespace-nowrap truncate">
+                    {option.label}
+                  </div>
+                  <div
+                    className={`text-[11px] leading-snug line-clamp-1 mt-0.5 ${
+                      selected ? 'text-white/75' : 'text-[#6B6663]'
+                    }`}
+                  >
+                    {option.id === 'modern-minimalist'
+                      ? 'Clean vector'
+                      : option.id === 'retro-pixel'
+                        ? '8-bit sprite'
+                        : 'Studio render'}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       {/* Seeker SKR 0% Fee Perk Banner */}
       <div className="actake-card p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-5">

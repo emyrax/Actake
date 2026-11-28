@@ -1,6 +1,6 @@
 {
   "name": "Actake",
-  "description": "Cross-platform Solana social accountability, AI-verified habit staking, and real-world 3D AR GeoDrops scavenger hunts with Brand AR 3D Studio, Voice AI Hunt Scout, MWA, and Pollar.",
+  "description": "Cross-platform Solana social accountability & AI-verified habit staking protocol with Mobile Wallet Adapter (MWA) and Wallet Standard support.",
   "requestFramePermissions": ["camera", "geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

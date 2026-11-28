@@ -6,6 +6,7 @@ create extension if not exists "pgcrypto";
 -- 1. Commitment Pools (Solo Alarms, Friend Squads, GPS Geo-Hunts)
 create table if not exists public.pools (
   id text primary key,
+  invite_code text,
   pool_pubkey text not null,
   pool_numeric_id bigint not null default 1,
   creator_pubkey text not null,
@@ -31,8 +32,10 @@ create table if not exists public.pools (
   created_at timestamptz not null default now()
 );
 
+alter table public.pools add column if not exists invite_code text;
 create index if not exists idx_pools_created_at on public.pools (created_at desc);
 create index if not exists idx_pools_type on public.pools (pool_type);
+create index if not exists idx_pools_invite_code on public.pools (upper(invite_code));
 
 -- 2. Pool Participants (Mirrors Participant PDA state)
 create table if not exists public.participants (
@@ -144,58 +147,4 @@ create policy "Public read settlements" on public.settlements for select using (
 
 drop policy if exists "Public read treasury_ledger" on public.treasury_ledger;
 create policy "Public read treasury_ledger" on public.treasury_ledger for select using (true);
-
--- 6. GeoDrops AR Scavenger Hunts (Isolated from Commitment Pools)
-create table if not exists public.geo_hunts (
-  id text primary key,
-  title text not null,
-  landmark_name text not null,
-  lore_hint text not null default '',
-  creator_wallet text not null,
-  hunt_escrow_pubkey text not null,
-  funding_tx_signature text not null default '',
-  token_symbol text not null check (token_symbol in ('SKR', 'USDC')) default 'USDC',
-  total_pool_amount numeric(14, 2) not null check (total_pool_amount > 0),
-  total_chests integer not null check (total_chests between 1 and 50) default 10,
-  claims_remaining integer not null check (claims_remaining >= 0) default 10,
-  reward_per_chest numeric(14, 4) not null check (reward_per_chest > 0),
-  target_lat double precision not null,
-  target_lng double precision not null,
-  radius_meters integer not null check (radius_meters in (15, 25, 50)) default 25,
-  geofence_polygon jsonb,
-  ar_asset jsonb,
-  is_public boolean not null default true,
-  created_at timestamptz not null default now()
-);
-
-alter table public.geo_hunts add column if not exists ar_asset jsonb;
-
-create index if not exists idx_geo_hunts_created_at on public.geo_hunts (created_at desc);
-create index if not exists idx_geo_hunts_public on public.geo_hunts (is_public);
-
--- 7. GeoDrops Hunt Participants & Claim Receipts
-create table if not exists public.hunt_participants (
-  id uuid primary key default gen_random_uuid(),
-  hunt_id text not null references public.geo_hunts(id) on delete cascade,
-  wallet_pubkey text not null,
-  has_claimed boolean not null default false,
-  claim_tx_signature text not null default '',
-  oracle_signature text not null default '',
-  joined_at timestamptz not null default now(),
-  claimed_at timestamptz,
-  unique (hunt_id, wallet_pubkey)
-);
-
-create index if not exists idx_hunt_participants_hunt on public.hunt_participants (hunt_id);
-create index if not exists idx_hunt_participants_wallet on public.hunt_participants (wallet_pubkey);
-
-alter table public.geo_hunts enable row level security;
-alter table public.hunt_participants enable row level security;
-
-drop policy if exists "Public read geo_hunts" on public.geo_hunts;
-create policy "Public read geo_hunts" on public.geo_hunts for select using (true);
-
-drop policy if exists "Public read hunt_participants" on public.hunt_participants;
-create policy "Public read hunt_participants" on public.hunt_participants for select using (true);
-
 

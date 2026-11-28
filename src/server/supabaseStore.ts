@@ -1,10 +1,13 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import type { PoolTractionSummary } from '../types/actake';
+import { derivePoolInviteCode, parsePoolInviteInput } from '../utils/poolLinks';
 
 export type PoolTokenSymbol = 'USDC' | 'SKR';
 
 export interface StoredPool {
   id: string;
+  inviteCode: string;
   poolPubkey: string;
   poolNumericId: number;
   creatorPubkey: string;
@@ -183,6 +186,7 @@ function seedMemoryStore() {
   const seedPools: StoredPool[] = [
     {
       id: 'squad-7am-club',
+      inviteCode: '7AMCLUB',
       poolPubkey: '7AMWakeClubPDA9x4k2mPq8vN1rT6wL3cF5bH2jY9uE',
       poolNumericId: 101,
       creatorPubkey: 'Seeker1111111111111111111111111111111111111',
@@ -209,6 +213,7 @@ function seedMemoryStore() {
     },
     {
       id: 'squad-skr-builders',
+      inviteCode: 'SKR6AM',
       poolPubkey: '6AMBuildersSKRPDA3z8nK2pL7vR4wQ9mB6cT1xH5dF',
       poolNumericId: 102,
       creatorPubkey: 'Builder111111111111111111111111111111111111',
@@ -235,6 +240,7 @@ function seedMemoryStore() {
     },
     {
       id: 'hunt-stadium-run',
+      inviteCode: 'RUN630',
       poolPubkey: '630AMStadiumGeoPDA8k1pM4nV9xQ2cR7wL5bT3yF6j',
       poolNumericId: 201,
       creatorPubkey: 'Runner1111111111111111111111111111111111111',
@@ -570,12 +576,16 @@ function seedMemoryStore() {
 seedMemoryStore();
 
 function mapPoolRow(row: Record<string, unknown>): StoredPool {
+  const id = String(row.id);
+  const title = String(row.title ?? 'Actake Pool');
+  const rawInvite = typeof row.invite_code === 'string' ? row.invite_code.trim().toUpperCase() : '';
   return {
-    id: String(row.id),
+    id,
+    inviteCode: rawInvite || derivePoolInviteCode(id, title),
     poolPubkey: String(row.pool_pubkey),
     poolNumericId: Number(row.pool_numeric_id ?? 1),
     creatorPubkey: String(row.creator_pubkey),
-    title: String(row.title),
+    title,
     categoryId: String(row.category_id ?? 'morning_wakeup'),
     environmentHint: String(row.environment_hint ?? ''),
     tokenSymbol: row.token_symbol === 'SKR' ? 'SKR' : 'USDC',
@@ -671,10 +681,13 @@ export async function listPools(poolType?: number): Promise<StoredPool[]> {
 }
 
 export async function getPoolById(poolId: string): Promise<StoredPool | null> {
+  const cleanId = poolId.trim();
+  if (!cleanId) return null;
+
   const sb = getSupabase();
   if (sb) {
     try {
-      const { data, error } = await sb.from('pools').select('*').eq('id', poolId).maybeSingle();
+      const { data, error } = await sb.from('pools').select('*').eq('id', cleanId).maybeSingle();
       if (!error && data) {
         return mapPoolRow(data as Record<string, unknown>);
       }
@@ -684,11 +697,115 @@ export async function getPoolById(poolId: string): Promise<StoredPool | null> {
     }
   }
 
-  return memoryPools.get(poolId) || null;
+  return memoryPools.get(cleanId) || null;
+}
+
+export async function resolvePoolByIdentifier(rawQuery: string): Promise<StoredPool | null> {
+  const parsed = parsePoolInviteInput(rawQuery);
+  if (!parsed || !parsed.token) return null;
+
+  const token = parsed.token;
+  const upperToken = token.toUpperCase();
+
+  // 1. Direct match by exact ID first
+  const direct = await getPoolById(token);
+  if (direct) return direct;
+
+  // 2. Search Supabase pools by pool_pubkey or invite_code (case-insensitive)
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data: pubkeyMatch, error: pkErr } = await sb
+        .from('pools')
+        .select('*')
+        .eq('pool_pubkey', token)
+        .maybeSingle();
+      if (!pkErr && pubkeyMatch) {
+        return mapPoolRow(pubkeyMatch as Record<string, unknown>);
+      }
+
+      const { data: codeMatch, error: codeErr } = await sb
+        .from('pools')
+        .select('*')
+        .ilike('invite_code', upperToken)
+        .maybeSingle();
+      if (!codeErr && codeMatch) {
+        return mapPoolRow(codeMatch as Record<string, unknown>);
+      }
+
+      // Fallback scan over recent pools (also supports legacy rows before invite_code migration)
+      const { data: recentRows, error: listErr } = await sb
+        .from('pools')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(80);
+      if (!listErr && Array.isArray(recentRows)) {
+        for (const row of recentRows) {
+          const mapped = mapPoolRow(row as Record<string, unknown>);
+          if (
+            mapped.id.toLowerCase() === token.toLowerCase() ||
+            mapped.poolPubkey === token ||
+            mapped.inviteCode.toUpperCase() === upperToken
+          ) {
+            return mapped;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(
+        'Supabase resolvePoolByIdentifier exception:',
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  // 3. Search in-memory / seeded pools
+  for (const pool of memoryPools.values()) {
+    if (
+      pool.id.toLowerCase() === token.toLowerCase() ||
+      pool.poolPubkey === token ||
+      pool.inviteCode.toUpperCase() === upperToken
+    ) {
+      return pool;
+    }
+  }
+
+  return null;
+}
+
+export function computePoolTractionSummary(
+  pool: StoredPool,
+  participants: StoredParticipant[]
+): PoolTractionSummary {
+  const verifiedCount = participants.filter((p) => !p.isSlashed && p.checkinsCompleted > 0).length;
+  const activeCount = participants.filter((p) => !p.isSlashed && p.checkinsCompleted === 0).length;
+  const slashedCount = participants.filter((p) => p.isSlashed).length;
+  const rosterCount = participants.length;
+  const totalMembers = Math.max(pool.participantCount, rosterCount);
+  const checkedInPct =
+    rosterCount > 0 ? Math.min(100, Math.round((verifiedCount / rosterCount) * 100)) : 0;
+
+  return {
+    poolId: pool.id,
+    inviteCode: pool.inviteCode,
+    title: pool.title,
+    totalMembers,
+    verifiedCount,
+    activeCount,
+    slashedCount,
+    checkedInPct,
+    totalStaked: pool.totalStaked,
+    slashedPotAvailable: pool.slashedPotAvailable,
+    tokenSymbol: pool.tokenSymbol,
+    alarmHour: pool.alarmHour,
+    alarmMinute: pool.alarmMinute,
+    totalDays: pool.totalDays,
+  };
 }
 
 export async function createPoolRecord(input: {
   id?: string;
+  inviteCode?: string;
   poolPubkey: string;
   creatorPubkey: string;
   creatorName?: string;
@@ -712,12 +829,17 @@ export async function createPoolRecord(input: {
     .replace(/(^-|-$)/g, '')
     .slice(0, 28);
   const id = input.id || `${slug || 'pool'}-${Date.now().toString(36)}`;
+  const cleanInvite = input.inviteCode
+    ? input.inviteCode.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 14)
+    : '';
+  const inviteCode = cleanInvite || derivePoolInviteCode(id, input.title);
   const numericId = Math.floor(Date.now() % 1_000_000_000);
   const mint = input.tokenSymbol === 'SKR' ? SKR_MINT : USDC_MINT;
   const nowIso = new Date().toISOString();
 
   const pool: StoredPool = {
     id,
+    inviteCode,
     poolPubkey: input.poolPubkey,
     poolNumericId: numericId,
     creatorPubkey: input.creatorPubkey,
@@ -750,8 +872,9 @@ export async function createPoolRecord(input: {
   const sb = getSupabase();
   if (sb) {
     try {
-      const { error: poolErr } = await sb.from('pools').insert({
+      const insertPayload: Record<string, unknown> = {
         id: pool.id,
+        invite_code: pool.inviteCode,
         pool_pubkey: pool.poolPubkey,
         pool_numeric_id: pool.poolNumericId,
         creator_pubkey: pool.creatorPubkey,
@@ -774,7 +897,15 @@ export async function createPoolRecord(input: {
         total_successful_checkins: 0,
         slashed_pot_available: 0,
         is_settled: false,
-      });
+      };
+      let { error: poolErr } = await sb.from('pools').insert(insertPayload);
+      if (
+        poolErr &&
+        /invite_code/i.test(String(poolErr.message || ''))
+      ) {
+        delete insertPayload.invite_code;
+        ({ error: poolErr } = await sb.from('pools').insert(insertPayload));
+      }
       if (!poolErr) {
         await sb.from('participants').upsert(
           {
@@ -818,15 +949,20 @@ export async function createPoolRecord(input: {
 }
 
 export async function joinPoolRecord(
-  poolId: string,
+  poolIdOrCode: string,
   input: {
     userPubkey: string;
     displayName?: string;
     joinedTxSignature: string;
   }
-): Promise<{ pool: StoredPool; participant: StoredParticipant } | null> {
-  const pool = await getPoolById(poolId);
+): Promise<{
+  pool: StoredPool;
+  participant: StoredParticipant;
+  traction: PoolTractionSummary;
+} | null> {
+  const pool = await resolvePoolByIdentifier(poolIdOrCode);
   if (!pool) return null;
+  const canonicalPoolId = pool.id;
 
   const displayName =
     input.displayName?.trim() || `${input.userPubkey.slice(0, 4)}...${input.userPubkey.slice(-4)}`;
@@ -838,21 +974,23 @@ export async function joinPoolRecord(
       const { data: existing } = await sb
         .from('participants')
         .select('*')
-        .eq('pool_id', poolId)
+        .eq('pool_id', canonicalPoolId)
         .eq('user_pubkey', input.userPubkey)
         .maybeSingle();
 
       if (existing) {
+        const lobby = await getSquadFeedAndLeaderboard(canonicalPoolId);
         return {
           pool,
           participant: mapParticipantRow(existing as Record<string, unknown>),
+          traction: lobby.traction || computePoolTractionSummary(pool, []),
         };
       }
 
       const { data: inserted, error: insertErr } = await sb
         .from('participants')
         .insert({
-          pool_id: poolId,
+          pool_id: canonicalPoolId,
           user_pubkey: input.userPubkey,
           display_name: displayName,
           staked_amount: pool.stakeAmount,
@@ -870,10 +1008,13 @@ export async function joinPoolRecord(
         await sb
           .from('pools')
           .update({ total_staked: nextTotal, participant_count: nextCount })
-          .eq('id', poolId);
+          .eq('id', canonicalPoolId);
+        const updatedPool = { ...pool, totalStaked: nextTotal, participantCount: nextCount };
+        const lobby = await getSquadFeedAndLeaderboard(canonicalPoolId);
         return {
-          pool: { ...pool, totalStaked: nextTotal, participantCount: nextCount },
+          pool: updatedPool,
           participant: mapParticipantRow(inserted as Record<string, unknown>),
+          traction: lobby.traction || computePoolTractionSummary(updatedPool, []),
         };
       }
       handleSupabaseQueryError('joinPoolRecord', insertErr);
@@ -882,15 +1023,19 @@ export async function joinPoolRecord(
     }
   }
 
-  const list = memoryParticipants.get(poolId) || [];
+  const list = memoryParticipants.get(canonicalPoolId) || [];
   const existingMem = list.find((p) => p.userPubkey === input.userPubkey);
   if (existingMem) {
-    return { pool, participant: existingMem };
+    return {
+      pool,
+      participant: existingMem,
+      traction: computePoolTractionSummary(pool, list),
+    };
   }
 
   const participant: StoredParticipant = {
     id: crypto.randomUUID(),
-    poolId,
+    poolId: canonicalPoolId,
     userPubkey: input.userPubkey,
     displayName,
     stakedAmount: pool.stakeAmount,
@@ -903,27 +1048,33 @@ export async function joinPoolRecord(
     joinedAt: nowIso,
   };
   list.unshift(participant);
-  memoryParticipants.set(poolId, list);
+  memoryParticipants.set(canonicalPoolId, list);
 
   const updatedPool: StoredPool = {
     ...pool,
     totalStaked: Number((pool.totalStaked + pool.stakeAmount).toFixed(2)),
     participantCount: pool.participantCount + 1,
   };
-  memoryPools.set(poolId, updatedPool);
+  memoryPools.set(canonicalPoolId, updatedPool);
 
-  return { pool: updatedPool, participant };
+  return {
+    pool: updatedPool,
+    participant,
+    traction: computePoolTractionSummary(updatedPool, list),
+  };
 }
 
-export async function getSquadFeedAndLeaderboard(poolId: string): Promise<{
+export async function getSquadFeedAndLeaderboard(poolIdOrCode: string): Promise<{
   pool: StoredPool | null;
   participants: StoredParticipant[];
   checkins: StoredCheckin[];
+  traction: PoolTractionSummary | null;
 }> {
-  const pool = await getPoolById(poolId);
+  const pool = await resolvePoolByIdentifier(poolIdOrCode);
   if (!pool) {
-    return { pool: null, participants: [], checkins: [] };
+    return { pool: null, participants: [], checkins: [], traction: null };
   }
+  const canonicalPoolId = pool.id;
 
   const sb = getSupabase();
   if (sb) {
@@ -932,26 +1083,28 @@ export async function getSquadFeedAndLeaderboard(poolId: string): Promise<{
         sb
           .from('participants')
           .select('*')
-          .eq('pool_id', poolId)
+          .eq('pool_id', canonicalPoolId)
           .order('checkins_completed', { ascending: false }),
         sb
           .from('checkins')
           .select('*')
-          .eq('pool_id', poolId)
+          .eq('pool_id', canonicalPoolId)
           .order('created_at', { ascending: false })
           .limit(30),
       ]);
       if (!partRes.error && !checkRes.error) {
+        const mappedParticipants = (partRes.data || []).map((r) =>
+          mapParticipantRow(r as Record<string, unknown>)
+        );
         return {
           pool,
-          participants: (partRes.data || []).map((r) =>
-            mapParticipantRow(r as Record<string, unknown>)
-          ),
+          participants: mappedParticipants,
           checkins: (checkRes.data || []).map((r) => ({
             ...mapCheckinRow(r as Record<string, unknown>),
             poolTitle: pool.title,
             tokenSymbol: pool.tokenSymbol,
           })),
+          traction: computePoolTractionSummary(pool, mappedParticipants),
         };
       }
       if (partRes.error || checkRes.error) {
@@ -965,7 +1118,7 @@ export async function getSquadFeedAndLeaderboard(poolId: string): Promise<{
     }
   }
 
-  const participants = [...(memoryParticipants.get(poolId) || [])].sort((a, b) => {
+  const participants = [...(memoryParticipants.get(canonicalPoolId) || [])].sort((a, b) => {
     // Status-based leaderboard: active/verified members always rank ahead of slashed members
     if (a.isSlashed !== b.isSlashed) return a.isSlashed ? 1 : -1;
     if (b.checkinsCompleted !== a.checkinsCompleted) {
@@ -975,10 +1128,38 @@ export async function getSquadFeedAndLeaderboard(poolId: string): Promise<{
     return b.stakedAmount - a.stakedAmount;
   });
   const checkins = memoryCheckins
-    .filter((c) => c.poolId === poolId)
+    .filter((c) => c.poolId === canonicalPoolId)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  return { pool, participants, checkins };
+  return {
+    pool,
+    participants,
+    checkins,
+    traction: computePoolTractionSummary(pool, participants),
+  };
+}
+
+export async function getPoolsTractionMap(
+  poolIds: string[]
+): Promise<Record<string, PoolTractionSummary>> {
+  const uniqueIds = Array.from(
+    new Set(poolIds.map((id) => id.trim()).filter((id) => id.length > 0 && id.length <= 120))
+  ).slice(0, 25);
+
+  const entries = await Promise.all(
+    uniqueIds.map(async (id) => {
+      const lobby = await getSquadFeedAndLeaderboard(id);
+      return lobby.traction ? ([id, lobby.traction] as const) : null;
+    })
+  );
+
+  const map: Record<string, PoolTractionSummary> = {};
+  for (const item of entries) {
+    if (item) {
+      map[item[0]] = item[1];
+    }
+  }
+  return map;
 }
 
 export async function recordVerifiedCheckin(input: {
@@ -1003,7 +1184,7 @@ export async function recordVerifiedCheckin(input: {
     .toUpperCase()
     .slice(0, 2) || 'AC';
 
-  const pool = await getPoolById(input.poolId);
+  const pool = await resolvePoolByIdentifier(input.poolId);
   const nowIso = new Date().toISOString();
 
   const checkin: StoredCheckin = {
@@ -1062,6 +1243,25 @@ export async function recordVerifiedCheckin(input: {
           .from('pools')
           .update({ total_successful_checkins: pool.totalSuccessfulCheckins + 1 })
           .eq('id', pool.id);
+
+        const { data: partRow } = await sb
+          .from('participants')
+          .select('id, checkins_completed, streak_days')
+          .eq('pool_id', pool.id)
+          .eq('user_pubkey', input.userPubkey)
+          .maybeSingle();
+
+        if (partRow) {
+          await sb
+            .from('participants')
+            .update({
+              checkins_completed: Number(partRow.checkins_completed ?? 0) + 1,
+              streak_days: Number(partRow.streak_days ?? 0) + 1,
+              is_slashed: false,
+            })
+            .eq('id', String(partRow.id));
+        }
+
         return {
           ...mapCheckinRow(data as Record<string, unknown>),
           poolTitle: pool.title,
@@ -1083,6 +1283,15 @@ export async function recordVerifiedCheckin(input: {
       ...pool,
       totalSuccessfulCheckins: pool.totalSuccessfulCheckins + 1,
     });
+    const memParts = memoryParticipants.get(pool.id);
+    if (memParts) {
+      const target = memParts.find((p) => p.userPubkey === input.userPubkey);
+      if (target) {
+        target.checkinsCompleted += 1;
+        target.streakDays = Math.max(1, target.streakDays + 1);
+        target.isSlashed = false;
+      }
+    }
   }
   return checkin;
 }
