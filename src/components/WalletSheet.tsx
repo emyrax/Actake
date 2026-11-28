@@ -301,7 +301,7 @@ export const WalletSheet: React.FC<WalletSheetProps> = ({
             className="w-full min-h-[46px] rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
           >
             {copiedBlink ? <Check className="w-4 h-4 text-[#4ADE80]" /> : <Share2 className="w-4 h-4" />}
-            <span>{copiedBlink ? 'Solana Blink Invite Copied' : 'Copy Solana Blink Squad Invite'}</span>
+            <span>{copiedBlink ? 'Pool App Link Copied' : 'Copy Pool Invite App Link'}</span>
           </button>
 
           <button

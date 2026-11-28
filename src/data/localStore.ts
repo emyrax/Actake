@@ -110,6 +110,7 @@ export const DEFAULT_GEO_HUNTS: GeoHuntZone[] = [
 
 export interface PersistedUserData {
   schemaVersion?: number;
+  username?: string;
   stakes: StakeCommitment[];
   customCategories: HabitCategory[];
   recentVerifiedItems: string[];

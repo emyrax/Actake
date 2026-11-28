@@ -443,7 +443,8 @@ export async function signActakeTransaction(
   session: WalletSession,
   options?: { requireBroadcast?: boolean }
 ): Promise<SignedActakeTxResult> {
-  const requireBroadcast = Boolean(options?.requireBroadcast);
+  // Strict blockchain signing: every stake, check-in, slash, and claim MUST broadcast & confirm on Solana Devnet.
+  const requireBroadcast = options?.requireBroadcast !== false;
 
   if (session.connectionKind === 'wallet-standard' || session.connectionKind === 'mwa') {
     const rehydrated = await rehydrateStandardWallet(session);
@@ -487,7 +488,7 @@ export async function signActakeTransaction(
         if (/reject|cancel|denied/i.test(msg)) {
           throw err;
         }
-        // If wallet lacks Devnet SOL or doesn't support send, fall back to signOnly below
+        // If wallet doesn't support direct send, fall back to signTransaction + RPC proxy broadcast
       }
     }
 
@@ -498,33 +499,23 @@ export async function signActakeTransaction(
           account: stdAccount,
           chain: session.chain,
         });
-        try {
-          const broadcast = await broadcastSignedTransactionToDevnet(result.signedTransaction);
-          return {
-            signature: broadcast.signature,
-            signedVia: session.walletName,
-            broadcastedOnChain: true,
-            explorerUrl: broadcast.explorerUrl,
-            solscanUrl: buildDevnetSolscanTxUrl(broadcast.signature),
-          };
-        } catch (broadcastErr) {
-          if (requireBroadcast) {
-            throw broadcastErr instanceof Error
-              ? broadcastErr
-              : new Error('Solana Devnet broadcast failed. Check your Devnet SOL/USDC balance and try again.');
-          }
-          const parsedTx = Transaction.from(result.signedTransaction);
-          const sig = parsedTx.signature
-            ? bs58.encode(parsedTx.signature)
-            : bs58.encode(await sha256Bytes(result.signedTransaction.toString()));
-          return {
-            signature: sig,
-            signedVia: session.walletName,
-            broadcastedOnChain: false,
-          };
-        }
+        const broadcast = await broadcastSignedTransactionToDevnet(result.signedTransaction);
+        return {
+          signature: broadcast.signature,
+          signedVia: session.walletName,
+          broadcastedOnChain: true,
+          explorerUrl: broadcast.explorerUrl,
+          solscanUrl: buildDevnetSolscanTxUrl(broadcast.signature),
+        };
       } catch (err) {
-        throw err instanceof Error ? err : new Error('Wallet signing was rejected.');
+        if (!requireBroadcast) {
+          throw err instanceof Error ? err : new Error('Wallet signing was rejected.');
+        }
+        throw err instanceof Error
+          ? err
+          : new Error(
+              'Solana Devnet broadcast failed. Make sure your wallet is on Devnet with SOL for gas and try again.'
+            );
       }
     }
 
@@ -533,8 +524,7 @@ export async function signActakeTransaction(
     );
   }
 
-  // Real local Ed25519 Transaction signature with @solana/web3.js Keypair
-  // Re-target signer cleanly so Pollar receipt memos or refreshed Browser Vault sessions never hit "unknown signer"
+  // Real Ed25519 Transaction signature with @solana/web3.js Keypair — MUST confirm on Solana Devnet
   const keypair = await getOrCreateBrowserVaultKeypair();
   const localTx = retargetTransactionSigner(tx, keypair.publicKey);
   await localTx.sign(keypair);
@@ -550,25 +540,12 @@ export async function signActakeTransaction(
       solscanUrl: buildDevnetSolscanTxUrl(broadcast.signature),
     };
   } catch (broadcastErr) {
-    if (requireBroadcast) {
-      throw broadcastErr instanceof Error
-        ? broadcastErr
-        : new Error(
-            'Your Browser Vault needs Devnet SOL to broadcast this on-chain transfer. Open Settings → Devnet Diagnostics to request a free Devnet SOL airdrop.'
-          );
-    }
-    // Graceful local-signed fallback when the Browser Vault has 0 Devnet SOL gas
-    const rawSig = localTx.signature;
-    const signature = rawSig
-      ? bs58.encode(rawSig)
-      : bs58.encode(
-          await sha256Bytes(`${session.publicKey}:${localTx.recentBlockhash}:${Date.now()}`)
-        );
-    return {
-      signature,
-      signedVia: session.walletName,
-      broadcastedOnChain: false,
-    };
+    const detail = broadcastErr instanceof Error ? broadcastErr.message : '';
+    throw new Error(
+      detail
+        ? `On-chain Solana broadcast required: ${detail}. Fund your wallet with Devnet SOL (Settings → Devnet Faucet) or connect Phantom/Solflare/Seed Vault.`
+        : 'On-chain Solana broadcast required. Fund your wallet with Devnet SOL in Settings or connect Phantom, Solflare, or Seed Vault.'
+    );
   }
 }
 

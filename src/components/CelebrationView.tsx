@@ -93,12 +93,17 @@ export const CelebrationView: React.FC<CelebrationViewProps> = ({
 
         {/* Payout Receipt Glass Card */}
         <div className="w-full rounded-2xl bg-white/14 border border-white/25 p-5 text-center space-y-2">
+          {(receipt.totalDays ?? 1) > 1 && (
+            <div className="text-xs font-mono font-semibold text-[#86EFAC] tabular-nums">
+              Day {receipt.dayIndex ?? 1} of {receipt.totalDays} Completed
+            </div>
+          )}
           <div className="font-display text-2xl sm:text-3xl font-extrabold tabular-nums">
             +${receipt.totalEarned.toFixed(2)} {receipt.token} Earned
           </div>
           <div className="text-xs sm:text-sm text-white/90 tabular-nums">
-            ${receipt.principalAmount.toFixed(2)} Stake Returned + $
-            {receipt.slashedBonus.toFixed(2)} Squad Split · Confirmed in {receipt.confirmationMs}ms
+            ${receipt.principalAmount.toFixed(2)} Daily Principal + $
+            {receipt.slashedBonus.toFixed(2)} Bonus Split · Confirmed in {receipt.confirmationMs}ms
           </div>
 
           {/* Cryptographic On-Chain Attestation Details */}
@@ -130,9 +135,9 @@ export const CelebrationView: React.FC<CelebrationViewProps> = ({
             {receipt.claimTxSignature && (
               <div className="flex items-center justify-between gap-3 text-[#86EFAC]">
                 <span>claim_payout:</span>
-                {receipt.claimExplorerUrl ? (
+                {receipt.claimSolscanUrl || receipt.claimExplorerUrl ? (
                   <a
-                    href={receipt.claimExplorerUrl}
+                    href={receipt.claimSolscanUrl || receipt.claimExplorerUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 hover:underline truncate"
@@ -145,6 +150,35 @@ export const CelebrationView: React.FC<CelebrationViewProps> = ({
                 )}
               </div>
             )}
+            {receipt.payoutTxSignature && (
+              <div className="flex items-center justify-between gap-3 text-[#86EFAC]">
+                <span>escrow_payout:</span>
+                {receipt.payoutSolscanUrl || receipt.payoutExplorerUrl ? (
+                  <a
+                    href={receipt.payoutSolscanUrl || receipt.payoutExplorerUrl || undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 hover:underline truncate"
+                  >
+                    <span>{receipt.payoutTxSignature.slice(0, 18)}...</span>
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </a>
+                ) : (
+                  <span className="truncate">{receipt.payoutTxSignature.slice(0, 22)}...</span>
+                )}
+              </div>
+            )}
+            {!receipt.payoutTxSignature &&
+              receipt.claimed &&
+              (receipt.payoutStatus === 'claim_verified_escrow_unconfigured' ||
+                receipt.payoutStatus === 'escrow_insufficient_funds') && (
+                <div className="text-[10px] text-white/75 pt-1 leading-relaxed">
+                  {receipt.payoutDetail ||
+                    (receipt.payoutStatus === 'escrow_insufficient_funds'
+                      ? 'Claim verified on-chain; escrow wallet needs funding for automatic disbursement.'
+                      : 'Claim verified on-chain; configure ACTAKE_ESCROW_SECRET_KEY for automatic escrow disbursement.')}
+                </div>
+              )}
           </div>
         </div>
 
@@ -193,7 +227,7 @@ export const CelebrationView: React.FC<CelebrationViewProps> = ({
             className="w-full min-h-[50px] rounded-full bg-white text-[#181E25] hover:bg-[#FAF7F3] font-bold text-sm flex items-center justify-center gap-2 transition-colors"
           >
             {copiedBlink ? <Copy className="w-4 h-4 text-[#1D8348]" /> : <Share2 className="w-4 h-4" />}
-            <span>{copiedBlink ? 'Proof Blink URL Copied!' : 'Share Proof Blink'}</span>
+            <span>{copiedBlink ? 'Pool App Link Copied!' : 'Share Pool App Link'}</span>
           </button>
 
           <button

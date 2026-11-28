@@ -22,12 +22,14 @@ interface GeofenceMapProps {
   variant?: 'card' | 'fullscreen';
   /** Increment to smoothly recenter/fit the map onto the hunt target (and user if present) */
   recenterSignal?: number;
+  /** Exposes the live Leaflet map instance to composable map layers such as CompetingHuntersLayer */
+  onMapReady?: (map: L.Map | null) => void;
 }
 
 /**
  * Interactive real-world Leaflet OpenStreetMap component for:
  * 1. Mapping real-world geofence areas (circle radius or custom polygon boundary) during Create Hunt.
- * 2. Full-screen real-time GPS location & geofence navigation during an active hunt.
+ * 2. Full-screen real-time GPS location & geofence navigation with composable overlay layers.
  */
 export const GeofenceMap: React.FC<GeofenceMapProps> = ({
   center,
@@ -42,14 +44,17 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
   heightClassName = 'h-[280px] sm:h-[320px]',
   variant = 'card',
   recenterSignal = 0,
+  onMapReady,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const overlayLayerRef = useRef<L.LayerGroup | null>(null);
   const onMapClickRef = useRef(onMapClick);
+  const onMapReadyRef = useRef(onMapReady);
   const interactionModeRef = useRef(interactionMode);
 
   onMapClickRef.current = onMapClick;
+  onMapReadyRef.current = onMapReady;
   interactionModeRef.current = interactionMode;
 
   // Initialize Leaflet map once
@@ -59,7 +64,7 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
 
     const map = L.map(el, {
       center: [center.lat, center.lng],
-      zoom: variant === 'fullscreen' ? 17 : 17,
+      zoom: 17,
       zoomControl: variant !== 'fullscreen',
       attributionControl: true,
     });
@@ -76,6 +81,7 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
     const overlayGroup = L.layerGroup().addTo(map);
     overlayLayerRef.current = overlayGroup;
     mapRef.current = map;
+    onMapReadyRef.current?.(map);
 
     map.on('click', (e: L.LeafletMouseEvent) => {
       if (interactionModeRef.current === 'readonly') return;
@@ -100,6 +106,7 @@ export const GeofenceMap: React.FC<GeofenceMapProps> = ({
     return () => {
       window.clearTimeout(resizeTimer);
       observer?.disconnect();
+      onMapReadyRef.current?.(null);
       map.remove();
       mapRef.current = null;
       overlayLayerRef.current = null;

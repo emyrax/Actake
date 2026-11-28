@@ -11,13 +11,19 @@ import { OnChainTransactionDetails, TokenType } from '../types/actake';
 import { safeFetchJson } from '../utils/safeFetchJson';
 
 export const DEFAULT_ACTAKE_ESCROW_PROGRAM_ID = 'ACTKescrow111111111111111111111111111111111';
+export const DEFAULT_SKR_MINT = 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3';
 export const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
 export const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+export const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
   'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'
 );
 export const MIN_SOL_GAS_RESERVE = 0.002;
 export const LAMPORTS_PER_SOL_NUM = 1_000_000_000;
+
+export function getTokenProgramIdForToken(token: TokenType): PublicKey {
+  return token === 'SKR' ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+}
 
 function resolveEscrowProgramId(): { programId: string; customDeployed: boolean } {
   const raw =
@@ -108,6 +114,13 @@ export interface SplTokenConfig {
   yieldMultiplier: number;
 }
 
+const CONFIGURED_SKR_MINT =
+  parsePublicSolanaAddress(
+    typeof import.meta !== 'undefined' && import.meta.env
+      ? String(import.meta.env.VITE_SKR_MINT || '')
+      : ''
+  ) || DEFAULT_SKR_MINT;
+
 export const TOKEN_CONFIGS: Record<TokenType, SplTokenConfig> = {
   USDC: {
     symbol: 'USDC',
@@ -121,7 +134,7 @@ export const TOKEN_CONFIGS: Record<TokenType, SplTokenConfig> = {
   SKR: {
     symbol: 'SKR',
     name: 'Solana Seeker SKR',
-    mint: 'SKR1111111111111111111111111111111111111111',
+    mint: CONFIGURED_SKR_MINT,
     tokenProgram: 'Token-2022',
     decimals: 6,
     protocolFeePct: 0,
@@ -165,15 +178,16 @@ export function isValidSolanaPublicKey(raw: string | null | undefined): boolean 
 }
 
 /**
- * Derives the canonical Associated Token Account (ATA) address for an owner & SPL mint
+ * Derives the canonical Associated Token Account (ATA) address for an owner & SPL/Token-2022 mint
  * using pure @solana/web3.js primitives (zero external SPL package overhead).
  */
 export async function deriveAssociatedTokenAddress(
   owner: PublicKey,
-  mint: PublicKey
+  mint: PublicKey,
+  tokenProgramId: PublicKey = TOKEN_PROGRAM_ID
 ): Promise<PublicKey> {
   const [ata] = await PublicKey.findProgramAddress(
-    [owner.toBytes(), TOKEN_PROGRAM_ID.toBytes(), mint.toBytes()],
+    [owner.toBytes(), tokenProgramId.toBytes(), mint.toBytes()],
     ASSOCIATED_TOKEN_PROGRAM_ID
   );
   return ata;
@@ -181,13 +195,14 @@ export async function deriveAssociatedTokenAddress(
 
 /**
  * Builds an Associated Token Account Program `CreateIdempotent` instruction (opcode 1).
- * Safely creates the destination ATA on first SPL USDC deposit without failing if it already exists.
+ * Safely creates the destination ATA on first SPL or Token-2022 deposit without failing if it already exists.
  */
 export function createAssociatedTokenAccountIdempotentInstruction(
   payer: PublicKey,
   associatedToken: PublicKey,
   owner: PublicKey,
-  mint: PublicKey
+  mint: PublicKey,
+  tokenProgramId: PublicKey = TOKEN_PROGRAM_ID
 ): TransactionInstruction {
   return new TransactionInstruction({
     programId: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -197,14 +212,14 @@ export function createAssociatedTokenAccountIdempotentInstruction(
       { pubkey: owner, isSigner: false, isWritable: false },
       { pubkey: mint, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     ],
     data: Buffer.from([1]),
   });
 }
 
 /**
- * Builds an SPL Token `TransferChecked` instruction (opcode 12, little-endian u64 amount + u8 decimals).
+ * Builds an SPL Token / Token-2022 `TransferChecked` instruction (opcode 12, little-endian u64 amount + u8 decimals).
  */
 export function createSplTransferCheckedInstruction(
   sourceAta: PublicKey,
@@ -212,16 +227,17 @@ export function createSplTransferCheckedInstruction(
   destinationAta: PublicKey,
   owner: PublicKey,
   amountBaseUnits: bigint,
-  decimals: number
+  decimals: number,
+  tokenProgramId: PublicKey = TOKEN_PROGRAM_ID
 ): TransactionInstruction {
   const data = new Uint8Array(10);
   const view = new DataView(data.buffer);
-  view.setUint8(0, 12); // SPL Token Instruction::TransferChecked
+  view.setUint8(0, 12); // SPL Token / Token-2022 Instruction::TransferChecked
   view.setBigUint64(1, amountBaseUnits, true);
   view.setUint8(9, decimals & 0xff);
 
   return new TransactionInstruction({
-    programId: TOKEN_PROGRAM_ID,
+    programId: tokenProgramId,
     keys: [
       { pubkey: sourceAta, isSigner: false, isWritable: true },
       { pubkey: mint, isSigner: false, isWritable: false },
@@ -404,8 +420,53 @@ export async function deriveEscrowPoolPda(
   return pdas.poolPda;
 }
 
+export const CANONICAL_APP_ORIGIN = (
+  (import.meta.env?.VITE_APP_URL as string | undefined)?.trim() || 'https://actake.vercel.app'
+).replace(/\/$/, '');
+
 /**
- * Builds a real Solana Actions / Blinks URL pointing to our live /api/actions/join/:poolId endpoint.
+ * Resolves the public shareable Actake app origin.
+ * Uses the live browser origin when already hosted on the production domain,
+ * and falls back to https://actake.vercel.app when running in localhost or ephemeral preview iframes
+ * so shared links always open cleanly for other people.
+ */
+export function resolveCanonicalAppOrigin(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const host = window.location.hostname.toLowerCase();
+    const isEphemeralPreview =
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host.endsWith('.run.app') ||
+      host.endsWith('.googleusercontent.com') ||
+      host.endsWith('.aistudio.google.com') ||
+      host.endsWith('.webcontainer.io');
+    if (!isEphemeralPreview && window.location.protocol === 'https:') {
+      return window.location.origin.replace(/\/$/, '');
+    }
+  }
+  return CANONICAL_APP_ORIGIN;
+}
+
+/**
+ * Builds the direct shareable Actake app URL for any accountability pool (/squad/:poolId).
+ */
+export function buildSquadLobbyUrl(poolId: string): string {
+  const baseOrigin = resolveCanonicalAppOrigin();
+  const cleanId = poolId.trim() || 'squad-7am-club';
+  return `${baseOrigin}/squad/${encodeURIComponent(cleanId)}`;
+}
+
+/**
+ * Builds the direct shareable Actake app URL for any GeoDrops AR Hunt (/hunts?hunt=:huntId).
+ */
+export function buildHuntUrl(huntId?: string): string {
+  const baseOrigin = resolveCanonicalAppOrigin();
+  if (!huntId) return `${baseOrigin}/hunts`;
+  return `${baseOrigin}/hunts?hunt=${encodeURIComponent(huntId)}`;
+}
+
+/**
+ * Builds a canonical Actake pool URL (with optional Solana Actions / Blinks endpoint support).
  */
 export function buildSquadBlinkUrl(params: {
   poolId?: string;
@@ -415,8 +476,6 @@ export function buildSquadBlinkUrl(params: {
   alarmTime: string;
   escrowPda?: string;
 }): string {
-  const baseOrigin =
-    typeof window !== 'undefined' ? window.location.origin : 'https://actake.app';
   const poolSlug =
     params.poolId ||
     params.squadName
@@ -424,14 +483,16 @@ export function buildSquadBlinkUrl(params: {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '') ||
     'squad-7am-club';
-  const actionUrl = new URL(`/api/actions/join/${encodeURIComponent(poolSlug)}`, baseOrigin);
-  return `https://dial.to/?action=${encodeURIComponent(`solana-action:${actionUrl.toString()}`)}`;
+  return buildSquadLobbyUrl(poolSlug);
 }
 
-export function buildSquadLobbyUrl(poolId: string): string {
-  const baseOrigin =
-    typeof window !== 'undefined' ? window.location.origin : 'https://actake.app';
-  return `${baseOrigin}/squad/${encodeURIComponent(poolId)}`;
+/**
+ * Builds the raw Solana Actions / Blinks protocol URL pointing to /api/actions/join/:poolId.
+ */
+export function buildSolanaActionUrl(poolId: string): string {
+  const baseOrigin = resolveCanonicalAppOrigin();
+  const actionUrl = new URL(`/api/actions/join/${encodeURIComponent(poolId)}`, baseOrigin);
+  return `https://dial.to/?action=${encodeURIComponent(`solana-action:${actionUrl.toString()}`)}`;
 }
 
 async function solanaRpc<T>(method: string, params: unknown[] = []): Promise<T> {
@@ -651,14 +712,123 @@ export interface OracleAttestationBundle {
 
 // Precomputed Anchor 8-byte global instruction discriminators matching lib.rs:
 // sha256("global:<instruction_name>")[0..8]
-async function computeAnchorDiscriminator(ixName: string): Promise<Uint8Array> {
+export async function computeAnchorDiscriminator(ixName: string): Promise<Uint8Array> {
   const digest = await sha256Bytes(`global:${ixName}`);
   return digest.slice(0, 8);
 }
 
+function writeU16Le(value: number): Uint8Array {
+  const b = new Uint8Array(2);
+  new DataView(b.buffer).setUint16(0, Math.max(0, Math.min(65535, Math.floor(value))), true);
+  return b;
+}
+
+function writeU64Le(value: number | bigint): Uint8Array {
+  const b = new Uint8Array(8);
+  new DataView(b.buffer).setBigUint64(0, typeof value === 'bigint' ? value : BigInt(Math.max(0, Math.floor(value))), true);
+  return b;
+}
+
+function writeI64Le(value: number | bigint): Uint8Array {
+  const b = new Uint8Array(8);
+  new DataView(b.buffer).setBigInt64(0, typeof value === 'bigint' ? value : BigInt(Math.floor(value)), true);
+  return b;
+}
+
 /**
- * Builds an Anchor submit_checkin instruction referencing SYSVAR_INSTRUCTIONS_PUBKEY
+ * Builds Anchor `create_pool` instruction matching lib.rs (109 bytes):
+ * disc[8] + pool_id[16] + pool_type[1] + stake_amount(u64)[8] + oracle_pubkey[32] +
+ * treasury[32] + total_days(u16)[2] + deadline_unix_ts(i64)[8] + protocol_fee_bps(u16)[2]
+ */
+export async function buildAnchorCreatePoolInstruction(params: {
+  creatorPublicKey: string;
+  poolIdHex: string;
+  poolPda: string;
+  vaultPda: string;
+  token: TokenType;
+  poolType: 0 | 1 | 2;
+  stakeAmountBaseUnits: bigint;
+  oraclePubkeyHex: string;
+  treasuryPublicKey: string;
+  totalDays: number;
+  deadlineUnixTs: number;
+  protocolFeeBps: number;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('create_pool');
+  const poolId16 = hexToUint8Array(params.poolIdHex).slice(0, 16);
+  const paddedPoolId = new Uint8Array(16);
+  paddedPoolId.set(poolId16);
+  const oracleBytes = hexToUint8Array(params.oraclePubkeyHex).slice(0, 32);
+  const paddedOracle = new Uint8Array(32);
+  paddedOracle.set(oracleBytes);
+  const treasuryPk = new PublicKey(params.treasuryPublicKey);
+  const mintPk = new PublicKey(TOKEN_CONFIGS[params.token].mint);
+  const tokenProgramId = getTokenProgramIdForToken(params.token);
+
+  const data = new Uint8Array(8 + 16 + 1 + 8 + 32 + 32 + 2 + 8 + 2);
+  let offset = 0;
+  data.set(disc, offset); offset += 8;
+  data.set(paddedPoolId, offset); offset += 16;
+  data[offset] = params.poolType; offset += 1;
+  data.set(writeU64Le(params.stakeAmountBaseUnits), offset); offset += 8;
+  data.set(paddedOracle, offset); offset += 32;
+  data.set(treasuryPk.toBytes(), offset); offset += 32;
+  data.set(writeU16Le(Math.max(1, Math.min(365, Math.floor(params.totalDays)))), offset); offset += 2;
+  data.set(writeI64Le(params.deadlineUnixTs), offset); offset += 8;
+  data.set(writeU16Le(params.protocolFeeBps), offset);
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: new PublicKey(params.creatorPublicKey), isSigner: true, isWritable: true },
+      { pubkey: mintPk, isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(params.poolPda), isSigner: false, isWritable: true },
+      { pubkey: new PublicKey(params.vaultPda), isSigner: false, isWritable: true },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+}
+
+/**
+ * Builds Anchor `join_pool` instruction matching lib.rs (8 bytes).
+ */
+export async function buildAnchorJoinPoolInstruction(params: {
+  userPublicKey: string;
+  poolPda: string;
+  vaultPda: string;
+  participantPda: string;
+  token: TokenType;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('join_pool');
+  const userPk = new PublicKey(params.userPublicKey);
+  const mintPk = new PublicKey(TOKEN_CONFIGS[params.token].mint);
+  const tokenProgramId = getTokenProgramIdForToken(params.token);
+  const userAta = await deriveAssociatedTokenAddress(userPk, mintPk, tokenProgramId);
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: userPk, isSigner: true, isWritable: true },
+      { pubkey: new PublicKey(params.poolPda), isSigner: false, isWritable: true },
+      { pubkey: mintPk, isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(params.vaultPda), isSigner: false, isWritable: true },
+      { pubkey: userAta, isSigner: false, isWritable: true },
+      { pubkey: new PublicKey(params.participantPda), isSigner: false, isWritable: true },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(disc),
+  });
+}
+
+/**
+ * Builds an Anchor `submit_checkin` instruction (42 bytes) referencing SYSVAR_INSTRUCTIONS_PUBKEY
  * when a deployed custom Devnet program ID is configured via VITE_ACTAKE_ESCROW_PROGRAM_ID.
+ * `dayIndex` is 1-based (`1..=365`).
  */
 export async function buildAnchorSubmitCheckinInstruction(params: {
   payerPublicKey: string;
@@ -669,8 +839,8 @@ export async function buildAnchorSubmitCheckinInstruction(params: {
 }): Promise<TransactionInstruction> {
   const programId = getSafeProgramPublicKey();
   const disc = await computeAnchorDiscriminator('submit_checkin');
-  const dayBytes = new Uint8Array(2);
-  new DataView(dayBytes.buffer).setUint16(0, params.dayIndex & 0xffff, true);
+  const normalizedDay = Math.max(1, Math.min(365, Math.floor(params.dayIndex)));
+  const dayBytes = writeU16Le(normalizedDay);
   const proofBytes = hexToUint8Array(params.proofHashHex).slice(0, 32);
   const paddedProof = new Uint8Array(32);
   paddedProof.set(proofBytes);
@@ -689,6 +859,414 @@ export async function buildAnchorSubmitCheckinInstruction(params: {
       { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
     ],
     data: Buffer.from(data),
+  });
+}
+
+/**
+ * Builds Anchor `claim_daily_payout(day_index: u16)` instruction (10 bytes).
+ */
+export async function buildAnchorClaimDailyPayoutInstruction(params: {
+  userPublicKey: string;
+  poolPda: string;
+  vaultPda: string;
+  participantPda: string;
+  token: TokenType;
+  dayIndex: number;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('claim_daily_payout');
+  const userPk = new PublicKey(params.userPublicKey);
+  const mintPk = new PublicKey(TOKEN_CONFIGS[params.token].mint);
+  const tokenProgramId = getTokenProgramIdForToken(params.token);
+  const userAta = await deriveAssociatedTokenAddress(userPk, mintPk, tokenProgramId);
+
+  const data = new Uint8Array(10);
+  data.set(disc, 0);
+  data.set(writeU16Le(Math.max(1, Math.min(365, Math.floor(params.dayIndex)))), 8);
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: userPk, isSigner: true, isWritable: true },
+      { pubkey: new PublicKey(params.poolPda), isSigner: false, isWritable: true },
+      { pubkey: mintPk, isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(params.vaultPda), isSigner: false, isWritable: true },
+      { pubkey: userAta, isSigner: false, isWritable: true },
+      { pubkey: new PublicKey(params.participantPda), isSigner: false, isWritable: true },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+}
+
+/**
+ * Builds Anchor `slash_missed_day(day_index: u16)` instruction (10 bytes).
+ */
+export async function buildAnchorSlashMissedDayInstruction(params: {
+  callerPublicKey: string;
+  participantUserPublicKey: string;
+  treasuryPublicKey: string;
+  poolPda: string;
+  vaultPda: string;
+  participantPda: string;
+  token: TokenType;
+  dayIndex: number;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('slash_missed_day');
+  const mintPk = new PublicKey(TOKEN_CONFIGS[params.token].mint);
+  const tokenProgramId = getTokenProgramIdForToken(params.token);
+  const [treasuryAta, userAta] = await Promise.all([
+    deriveAssociatedTokenAddress(new PublicKey(params.treasuryPublicKey), mintPk, tokenProgramId),
+    deriveAssociatedTokenAddress(new PublicKey(params.participantUserPublicKey), mintPk, tokenProgramId),
+  ]);
+
+  const data = new Uint8Array(10);
+  data.set(disc, 0);
+  data.set(writeU16Le(Math.max(1, Math.min(365, Math.floor(params.dayIndex)))), 8);
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: new PublicKey(params.callerPublicKey), isSigner: true, isWritable: false },
+      { pubkey: new PublicKey(params.poolPda), isSigner: false, isWritable: true },
+      { pubkey: mintPk, isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(params.vaultPda), isSigner: false, isWritable: true },
+      { pubkey: treasuryAta, isSigner: false, isWritable: true },
+      { pubkey: userAta, isSigner: false, isWritable: true },
+      { pubkey: new PublicKey(params.participantPda), isSigner: false, isWritable: true },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+}
+
+/**
+ * Builds Anchor `settle_and_claim` instruction (8 bytes).
+ */
+export async function buildAnchorSettleAndClaimInstruction(params: {
+  userPublicKey: string;
+  treasuryPublicKey: string;
+  poolPda: string;
+  vaultPda: string;
+  participantPda: string;
+  token: TokenType;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('settle_and_claim');
+  const userPk = new PublicKey(params.userPublicKey);
+  const mintPk = new PublicKey(TOKEN_CONFIGS[params.token].mint);
+  const tokenProgramId = getTokenProgramIdForToken(params.token);
+  const [userAta, treasuryAta] = await Promise.all([
+    deriveAssociatedTokenAddress(userPk, mintPk, tokenProgramId),
+    deriveAssociatedTokenAddress(new PublicKey(params.treasuryPublicKey), mintPk, tokenProgramId),
+  ]);
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: userPk, isSigner: true, isWritable: true },
+      { pubkey: new PublicKey(params.poolPda), isSigner: false, isWritable: true },
+      { pubkey: mintPk, isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(params.vaultPda), isSigner: false, isWritable: true },
+      { pubkey: userAta, isSigner: false, isWritable: true },
+      { pubkey: treasuryAta, isSigner: false, isWritable: true },
+      { pubkey: new PublicKey(params.participantPda), isSigner: false, isWritable: true },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(disc),
+  });
+}
+
+/**
+ * Builds Anchor `sweep_to_treasury` instruction (8 bytes).
+ */
+export async function buildAnchorSweepToTreasuryInstruction(params: {
+  callerPublicKey: string;
+  treasuryPublicKey: string;
+  poolPda: string;
+  vaultPda: string;
+  token: TokenType;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('sweep_to_treasury');
+  const mintPk = new PublicKey(TOKEN_CONFIGS[params.token].mint);
+  const tokenProgramId = getTokenProgramIdForToken(params.token);
+  const treasuryAta = await deriveAssociatedTokenAddress(
+    new PublicKey(params.treasuryPublicKey),
+    mintPk,
+    tokenProgramId
+  );
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: new PublicKey(params.callerPublicKey), isSigner: true, isWritable: false },
+      { pubkey: new PublicKey(params.poolPda), isSigner: false, isWritable: true },
+      { pubkey: mintPk, isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(params.vaultPda), isSigner: false, isWritable: true },
+      { pubkey: treasuryAta, isSigner: false, isWritable: true },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(disc),
+  });
+}
+
+// =========================================================================
+// MODULE 3: GEODROPS AR HUNTS PDAs & ANCHOR CPI BUILDERS
+// =========================================================================
+
+export async function deriveGeoDropPdas(params: {
+  creatorPublicKey: string;
+  huntNumericId: number | bigint;
+  hunterPublicKey?: string;
+}): Promise<{
+  huntPda: PublicKey;
+  tokenVaultPda: PublicKey;
+  solVaultPda: PublicKey;
+  claimReceiptPda: PublicKey | null;
+}> {
+  const programId = getSafeProgramPublicKey();
+  const creatorPk = new PublicKey(params.creatorPublicKey);
+  const huntIdBytes = writeU64Le(params.huntNumericId);
+
+  const [huntPda] = await PublicKey.findProgramAddress(
+    [new TextEncoder().encode('geodrop'), creatorPk.toBytes(), huntIdBytes],
+    programId
+  );
+  const [tokenVaultPda] = await PublicKey.findProgramAddress(
+    [new TextEncoder().encode('geodrop_vault'), huntPda.toBytes()],
+    programId
+  );
+  const [solVaultPda] = await PublicKey.findProgramAddress(
+    [new TextEncoder().encode('geodrop_sol_vault'), huntPda.toBytes()],
+    programId
+  );
+
+  let claimReceiptPda: PublicKey | null = null;
+  if (params.hunterPublicKey) {
+    const hunterPk = new PublicKey(params.hunterPublicKey);
+    const [receiptPk] = await PublicKey.findProgramAddress(
+      [new TextEncoder().encode('geodrop_claim'), huntPda.toBytes(), hunterPk.toBytes()],
+      programId
+    );
+    claimReceiptPda = receiptPk;
+  }
+
+  return { huntPda, tokenVaultPda, solVaultPda, claimReceiptPda };
+}
+
+export async function buildAnchorCreateTokenGeoDropInstruction(params: {
+  creatorPublicKey: string;
+  huntNumericId: number | bigint;
+  oraclePubkeyHex: string;
+  token: TokenType;
+  rewardPerChestBaseUnits: bigint;
+  totalChests: number;
+  expiresAtUnixTs: number;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('create_token_geodrop_hunt');
+  const creatorPk = new PublicKey(params.creatorPublicKey);
+  const mintPk = new PublicKey(TOKEN_CONFIGS[params.token].mint);
+  const tokenProgramId = getTokenProgramIdForToken(params.token);
+  const { huntPda, tokenVaultPda } = await deriveGeoDropPdas({
+    creatorPublicKey: params.creatorPublicKey,
+    huntNumericId: params.huntNumericId,
+  });
+  const creatorAta = await deriveAssociatedTokenAddress(creatorPk, mintPk, tokenProgramId);
+  const oracleBytes = hexToUint8Array(params.oraclePubkeyHex).slice(0, 32);
+  const paddedOracle = new Uint8Array(32);
+  paddedOracle.set(oracleBytes);
+
+  const data = new Uint8Array(8 + 8 + 32 + 8 + 2 + 8);
+  let offset = 0;
+  data.set(disc, offset); offset += 8;
+  data.set(writeU64Le(params.huntNumericId), offset); offset += 8;
+  data.set(paddedOracle, offset); offset += 32;
+  data.set(writeU64Le(params.rewardPerChestBaseUnits), offset); offset += 8;
+  data.set(writeU16Le(params.totalChests), offset); offset += 2;
+  data.set(writeI64Le(params.expiresAtUnixTs), offset);
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: creatorPk, isSigner: true, isWritable: true },
+      { pubkey: mintPk, isSigner: false, isWritable: false },
+      { pubkey: huntPda, isSigner: false, isWritable: true },
+      { pubkey: tokenVaultPda, isSigner: false, isWritable: true },
+      { pubkey: creatorAta, isSigner: false, isWritable: true },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+}
+
+export async function buildAnchorCreateSolGeoDropInstruction(params: {
+  creatorPublicKey: string;
+  huntNumericId: number | bigint;
+  oraclePubkeyHex: string;
+  rewardPerChestLamports: bigint;
+  totalChests: number;
+  expiresAtUnixTs: number;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('create_sol_geodrop_hunt');
+  const creatorPk = new PublicKey(params.creatorPublicKey);
+  const { huntPda, solVaultPda } = await deriveGeoDropPdas({
+    creatorPublicKey: params.creatorPublicKey,
+    huntNumericId: params.huntNumericId,
+  });
+  const oracleBytes = hexToUint8Array(params.oraclePubkeyHex).slice(0, 32);
+  const paddedOracle = new Uint8Array(32);
+  paddedOracle.set(oracleBytes);
+
+  const data = new Uint8Array(8 + 8 + 32 + 8 + 2 + 8);
+  let offset = 0;
+  data.set(disc, offset); offset += 8;
+  data.set(writeU64Le(params.huntNumericId), offset); offset += 8;
+  data.set(paddedOracle, offset); offset += 32;
+  data.set(writeU64Le(params.rewardPerChestLamports), offset); offset += 8;
+  data.set(writeU16Le(params.totalChests), offset); offset += 2;
+  data.set(writeI64Le(params.expiresAtUnixTs), offset);
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: creatorPk, isSigner: true, isWritable: true },
+      { pubkey: huntPda, isSigner: false, isWritable: true },
+      { pubkey: solVaultPda, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+}
+
+export async function buildAnchorClaimTokenGeoDropInstruction(params: {
+  hunterPublicKey: string;
+  creatorPublicKey: string;
+  huntNumericId: number | bigint;
+  token: TokenType;
+  attestationExpiresAtUnixTs: number;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('claim_token_geodrop');
+  const hunterPk = new PublicKey(params.hunterPublicKey);
+  const mintPk = new PublicKey(TOKEN_CONFIGS[params.token].mint);
+  const tokenProgramId = getTokenProgramIdForToken(params.token);
+  const { huntPda, tokenVaultPda, claimReceiptPda } = await deriveGeoDropPdas({
+    creatorPublicKey: params.creatorPublicKey,
+    huntNumericId: params.huntNumericId,
+    hunterPublicKey: params.hunterPublicKey,
+  });
+  const hunterAta = await deriveAssociatedTokenAddress(hunterPk, mintPk, tokenProgramId);
+
+  const data = new Uint8Array(16);
+  data.set(disc, 0);
+  data.set(writeI64Le(params.attestationExpiresAtUnixTs), 8);
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: hunterPk, isSigner: true, isWritable: true },
+      { pubkey: huntPda, isSigner: false, isWritable: true },
+      { pubkey: mintPk, isSigner: false, isWritable: false },
+      { pubkey: tokenVaultPda, isSigner: false, isWritable: true },
+      { pubkey: hunterAta, isSigner: false, isWritable: true },
+      { pubkey: claimReceiptPda!, isSigner: false, isWritable: true },
+      { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+}
+
+export async function buildAnchorClaimSolGeoDropInstruction(params: {
+  hunterPublicKey: string;
+  creatorPublicKey: string;
+  huntNumericId: number | bigint;
+  attestationExpiresAtUnixTs: number;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('claim_sol_geodrop');
+  const hunterPk = new PublicKey(params.hunterPublicKey);
+  const { huntPda, solVaultPda, claimReceiptPda } = await deriveGeoDropPdas({
+    creatorPublicKey: params.creatorPublicKey,
+    huntNumericId: params.huntNumericId,
+    hunterPublicKey: params.hunterPublicKey,
+  });
+
+  const data = new Uint8Array(16);
+  data.set(disc, 0);
+  data.set(writeI64Le(params.attestationExpiresAtUnixTs), 8);
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: hunterPk, isSigner: true, isWritable: true },
+      { pubkey: huntPda, isSigner: false, isWritable: true },
+      { pubkey: solVaultPda, isSigner: false, isWritable: true },
+      { pubkey: claimReceiptPda!, isSigner: false, isWritable: true },
+      { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+}
+
+export async function buildAnchorReclaimTokenGeoDropInstruction(params: {
+  creatorPublicKey: string;
+  huntNumericId: number | bigint;
+  token: TokenType;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('reclaim_token_geodrop');
+  const creatorPk = new PublicKey(params.creatorPublicKey);
+  const mintPk = new PublicKey(TOKEN_CONFIGS[params.token].mint);
+  const tokenProgramId = getTokenProgramIdForToken(params.token);
+  const { huntPda, tokenVaultPda } = await deriveGeoDropPdas({
+    creatorPublicKey: params.creatorPublicKey,
+    huntNumericId: params.huntNumericId,
+  });
+  const creatorAta = await deriveAssociatedTokenAddress(creatorPk, mintPk, tokenProgramId);
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: creatorPk, isSigner: true, isWritable: true },
+      { pubkey: huntPda, isSigner: false, isWritable: true },
+      { pubkey: mintPk, isSigner: false, isWritable: false },
+      { pubkey: tokenVaultPda, isSigner: false, isWritable: true },
+      { pubkey: creatorAta, isSigner: false, isWritable: true },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(disc),
+  });
+}
+
+export async function buildAnchorReclaimSolGeoDropInstruction(params: {
+  creatorPublicKey: string;
+  huntNumericId: number | bigint;
+}): Promise<TransactionInstruction> {
+  const programId = getSafeProgramPublicKey();
+  const disc = await computeAnchorDiscriminator('reclaim_sol_geodrop');
+  const creatorPk = new PublicKey(params.creatorPublicKey);
+  const { huntPda, solVaultPda } = await deriveGeoDropPdas({
+    creatorPublicKey: params.creatorPublicKey,
+    huntNumericId: params.huntNumericId,
+  });
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: creatorPk, isSigner: true, isWritable: true },
+      { pubkey: huntPda, isSigner: false, isWritable: true },
+      { pubkey: solVaultPda, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(disc),
   });
 }
 

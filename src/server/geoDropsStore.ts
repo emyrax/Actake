@@ -31,6 +31,21 @@ const SEED_ESCROW =
 
 const memoryHunts = new Map<string, GeoHuntRecord>();
 
+export interface GeoHuntClaimRecord {
+  id: string;
+  huntId: string;
+  huntTitle: string;
+  landmarkName: string;
+  hunterPubkey: string;
+  rewardAmount: number;
+  tokenSymbol: GeoDropTokenSymbol;
+  claimTxSignature: string;
+  claimedAt: string;
+  arAssetKind: string;
+}
+
+const memoryHuntClaims: GeoHuntClaimRecord[] = [];
+
 interface StoredGlbBinary {
   id: string;
   fileName: string;
@@ -181,6 +196,23 @@ function seedInitialGeoHunts(): void {
 
   for (const h of starterHunts) {
     memoryHunts.set(h.id, h);
+    h.claimedBy.forEach((hunterPubkey, idx) => {
+      const claimId = `seed-claim-${h.id}-${idx}`;
+      if (!memoryHuntClaims.some((c) => c.id === claimId)) {
+        memoryHuntClaims.push({
+          id: claimId,
+          huntId: h.id,
+          huntTitle: h.title,
+          landmarkName: h.landmarkName,
+          hunterPubkey,
+          rewardAmount: h.rewardPerChest,
+          tokenSymbol: h.tokenSymbol,
+          claimTxSignature: `${h.fundingTxSignature}-claim-${idx + 1}`,
+          claimedAt: new Date(Date.parse(h.createdAt) + (idx + 1) * 1000 * 60 * 14).toISOString(),
+          arAssetKind: h.arAsset?.kind || 'chest',
+        });
+      }
+    });
   }
 }
 
@@ -494,6 +526,19 @@ export async function recordGeoHuntClaim(params: {
   };
 
   memoryHunts.set(params.huntId, updated);
+  const claimedAtIso = new Date().toISOString();
+  memoryHuntClaims.unshift({
+    id: `hunt-claim-${params.huntId}-${params.hunterPubkey.slice(0, 8)}-${Date.now()}`,
+    huntId: updated.id,
+    huntTitle: updated.title,
+    landmarkName: updated.landmarkName,
+    hunterPubkey: params.hunterPubkey,
+    rewardAmount: updated.rewardPerChest,
+    tokenSymbol: updated.tokenSymbol,
+    claimTxSignature: params.claimTxSignature,
+    claimedAt: claimedAtIso,
+    arAssetKind: updated.arAsset?.kind || 'chest',
+  });
 
   const sb = getGeoDropsSupabase();
   if (sb) {
@@ -505,7 +550,7 @@ export async function recordGeoHuntClaim(params: {
           has_claimed: true,
           claim_tx_signature: params.claimTxSignature,
           oracle_signature: params.oracleSignature,
-          claimed_at: new Date().toISOString(),
+          claimed_at: claimedAtIso,
         },
         { onConflict: 'hunt_id,wallet_pubkey' }
       );
@@ -519,4 +564,56 @@ export async function recordGeoHuntClaim(params: {
   }
 
   return { hunt: updated, alreadyClaimed: false };
+}
+
+export async function listGeoHuntClaims(walletPubkey?: string): Promise<GeoHuntClaimRecord[]> {
+  const normalizedWallet = walletPubkey?.trim() || null;
+  const sb = getGeoDropsSupabase();
+  if (sb) {
+    try {
+      let query = sb
+        .from('hunt_participants')
+        .select('hunt_id, wallet_pubkey, has_claimed, claim_tx_signature, claimed_at, joined_at')
+        .eq('has_claimed', true)
+        .order('claimed_at', { ascending: false })
+        .limit(500);
+      if (normalizedWallet) {
+        query = query.eq('wallet_pubkey', normalizedWallet);
+      }
+      const { data: claimRows, error } = await query;
+      if (!error && Array.isArray(claimRows)) {
+        const { hunts } = await listPublicGeoHunts();
+        const huntMap = new Map(hunts.map((h) => [h.id, h]));
+        const mapped: GeoHuntClaimRecord[] = [];
+        for (const row of claimRows as Array<Record<string, unknown>>) {
+          const huntId = String(row.hunt_id ?? '');
+          const hunterPubkey = String(row.wallet_pubkey ?? '');
+          if (!huntId || !hunterPubkey) continue;
+          const hunt = huntMap.get(huntId);
+          mapped.push({
+            id: `sb-hunt-claim-${huntId}-${hunterPubkey.slice(0, 10)}`,
+            huntId,
+            huntTitle: hunt?.title || 'AR GeoDrop Hunt',
+            landmarkName: hunt?.landmarkName || 'GeoDrop Landmark',
+            hunterPubkey,
+            rewardAmount: hunt?.rewardPerChest ?? 0,
+            tokenSymbol: hunt?.tokenSymbol || 'USDC',
+            claimTxSignature:
+              String(row.claim_tx_signature ?? '').trim() || `geodrop-${huntId}-${hunterPubkey.slice(0, 8)}`,
+            claimedAt: String(row.claimed_at ?? row.joined_at ?? new Date().toISOString()),
+            arAssetKind: hunt?.arAsset?.kind || 'chest',
+          });
+        }
+        return mapped;
+      }
+    } catch {
+      // fall through to memory store
+    }
+  }
+
+  seedInitialGeoHunts();
+  const filtered = normalizedWallet
+    ? memoryHuntClaims.filter((c) => c.hunterPubkey === normalizedWallet)
+    : memoryHuntClaims;
+  return [...filtered].sort((a, b) => Date.parse(b.claimedAt) - Date.parse(a.claimedAt));
 }

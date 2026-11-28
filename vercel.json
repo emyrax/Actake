@@ -19,7 +19,7 @@
       "destination": "/api"
     },
     {
-      "source": "/((?!api/|assets/|actions\\.json).*)",
+      "source": "/((?!api/|assets/|src/assets/|actions\\.json|manifest\\.webmanifest|sw\\.js|registerSW\\.js|workbox-.*|favicon\\.ico|favicon-32x32\\.png|apple-touch-icon\\.png|icon\\.svg|pwa-.*\\.png).*)",
       "destination": "/index.html"
     }
   ]

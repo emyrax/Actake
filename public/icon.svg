@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <linearGradient id="actake-bg" x1="48" y1="36" x2="464" y2="476" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1D1D23"/>
+      <stop offset="100%" stop-color="#0E0E12"/>
+    </linearGradient>
+    <radialGradient id="actake-glow" cx="72%" cy="22%" r="62%">
+      <stop offset="0%" stop-color="#F16A2E" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#F16A2E" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="actake-accent" x1="150" y1="120" x2="395" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF8748"/>
+      <stop offset="100%" stop-color="#E8561A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded App Tile Background -->
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#actake-bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#actake-glow)"/>
+  <rect x="20" y="20" width="472" height="472" rx="112" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="6"/>
+
+  <!-- Geometric Actake "A" Crest -->
+  <path
+    d="M138 386L234 140C241 122 267 122 274 140L370 386"
+    stroke="#FFFFFF"
+    stroke-width="46"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <!-- Signature Orange Verified Check Crossbar -->
+  <path
+    d="M174 294L236 350L388 188"
+    stroke="url(#actake-accent)"
+    stroke-width="48"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

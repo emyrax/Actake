@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   BedDouble,
   BookOpen,
-  Calendar,
   Check,
   Clock,
   Coffee,
@@ -13,11 +12,15 @@ import {
   ExternalLink,
   Flame,
   Footprints,
+  Globe,
   Leaf,
   Loader2,
+  Lock,
+  Minus,
   Plus,
   ShieldCheck,
   Sparkles,
+  Users,
   Wallet,
   X,
   Zap,
@@ -37,9 +40,18 @@ import {
 } from '../solana/actakeEscrow';
 import { useActakePollar } from '../context/ActakePollarProvider';
 import { formatClockTime12h, formatTimeUntilNextDeadline } from '../utils/timeUtils';
+import {
+  calculateDailyPayoutBreakdown,
+  clampRecurringDays,
+  formatScheduleLabel,
+  RECURRING_DAY_PRESETS,
+  RecurrenceCadence,
+  StakeVisibility,
+} from '../utils/stakePayouts';
 import { ExploreHabitPreset } from './SquadsView';
 import { MascotDisplay } from './MascotDisplay';
 import { ErrorStateCard } from './UiPrimitives';
+import { AccountabilityPoolsWorkspace } from '../features/accountability-pools';
 
 interface MissionsViewProps {
   wallet: WalletSession;
@@ -47,8 +59,13 @@ interface MissionsViewProps {
   defaultAlarmSound: AlarmSoundId;
   submitting: boolean;
   initialPreset?: ExploreHabitPreset | null;
+  initialVisibility?: StakeVisibility | null;
+  initialCreateMode?: 'solo' | 'track-pools' | null;
+  initialTrackPoolId?: string | null;
   treasuryConfig?: TreasuryConfigSummary | null;
   onClearPreset?: () => void;
+  onClearInitialVisibility?: () => void;
+  onClearTrackPoolNavigation?: () => void;
   onAddCustomCategory: (cat: HabitCategory) => void;
   onOpenPollarFund: () => void;
   onSignInPollar: () => void;
@@ -60,12 +77,15 @@ interface MissionsViewProps {
     alarmMinute: number;
     motivationNote?: string;
     frequencyLabel?: string;
+    visibility?: StakeVisibility;
+    poolName?: string;
+    totalDays?: number;
+    recurrencePattern?: RecurrenceCadence;
   }) => Promise<void>;
   onNavigateTab: (tab: 'home' | 'hunts' | 'squads') => void;
 }
 
 const STAKE_AMOUNTS = [5, 10, 15, 25, 50];
-const FREQUENCIES = ['Daily', 'Weekdays', '5x / Week', 'Weekends'];
 
 interface QuickStakePreset {
   id: string;
@@ -77,7 +97,8 @@ interface QuickStakePreset {
   token: TokenType;
   alarmHour: number;
   alarmMinute: number;
-  frequencyLabel: string;
+  totalDays: number;
+  cadence: RecurrenceCadence;
   motivationNote: string;
   icon: 'run' | 'work' | 'read';
 }
@@ -93,7 +114,8 @@ const QUICK_STAKE_PRESETS: QuickStakePreset[] = [
     token: 'USDC',
     alarmHour: 6,
     alarmMinute: 30,
-    frequencyLabel: 'Daily',
+    totalDays: 7,
+    cadence: 'daily',
     motivationNote: 'Morning Run — 20 minutes outside before checking messages.',
     icon: 'run',
   },
@@ -107,7 +129,8 @@ const QUICK_STAKE_PRESETS: QuickStakePreset[] = [
     token: 'SKR',
     alarmHour: 9,
     alarmMinute: 0,
-    frequencyLabel: 'Weekdays',
+    totalDays: 7,
+    cadence: 'weekdays',
     motivationNote: 'Deep Work — 90-minute phone-free builder sprint at my desk.',
     icon: 'work',
   },
@@ -121,7 +144,8 @@ const QUICK_STAKE_PRESETS: QuickStakePreset[] = [
     token: 'USDC',
     alarmHour: 21,
     alarmMinute: 0,
-    frequencyLabel: 'Daily',
+    totalDays: 3,
+    cadence: 'daily',
     motivationNote: 'Read 20m — 20 pages of a real book instead of scrolling.',
     icon: 'read',
   },
@@ -152,8 +176,13 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
   categories,
   submitting,
   initialPreset,
+  initialVisibility,
+  initialCreateMode,
+  initialTrackPoolId,
   treasuryConfig,
   onClearPreset,
+  onClearInitialVisibility,
+  onClearTrackPoolNavigation,
   onAddCustomCategory,
   onOpenPollarFund,
   onSignInPollar,
@@ -167,11 +196,21 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
     initialPreset?.categoryId || categories[0]?.id || 'morning_wakeup'
   );
   const [amount, setAmount] = useState<number>(initialPreset?.amount ?? 10);
+  const [amountInput, setAmountInput] = useState<string>(String(initialPreset?.amount ?? 10));
   const [amountError, setAmountError] = useState<string | null>(null);
   const [token, setToken] = useState<TokenType>(initialPreset?.token ?? 'USDC');
   const [alarmHour, setAlarmHour] = useState<number>(initialPreset?.alarmHour ?? 6);
   const [alarmMinute, setAlarmMinute] = useState<number>(initialPreset?.alarmMinute ?? 30);
-  const [frequencyLabel, setFrequencyLabel] = useState<string>('Daily');
+  const [visibility, setVisibility] = useState<StakeVisibility>(
+    initialVisibility ?? initialPreset?.visibility ?? 'solo'
+  );
+  const [communityPoolName, setCommunityPoolName] = useState<string>('');
+  const [totalDays, setTotalDays] = useState<number>(initialPreset?.totalDays ?? 7);
+  const [daysInput, setDaysInput] = useState<string>(String(initialPreset?.totalDays ?? 7));
+  const [daysError, setDaysError] = useState<string | null>(null);
+  const [cadence, setCadence] = useState<RecurrenceCadence>(
+    (initialPreset?.totalDays ?? 7) <= 1 ? 'once' : 'daily'
+  );
   const [motivationNote, setMotivationNote] = useState<string>(
     initialPreset?.motivationNote || ''
   );
@@ -185,17 +224,22 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
   const [customError, setCustomError] = useState<string | null>(null);
   const [stakeError, setStakeError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [createMode, setCreateMode] = useState<'solo' | 'track-pools'>('solo');
 
   const applyQuickPreset = (preset: QuickStakePreset) => {
     const matchedCat =
       categories.find((c) => c.id === preset.categoryId) || categories[0];
     setSelectedCategoryId(matchedCat.id);
     setAmount(preset.amount);
+    setAmountInput(String(preset.amount));
     setAmountError(null);
     setToken(preset.token);
     setAlarmHour(preset.alarmHour);
     setAlarmMinute(preset.alarmMinute);
-    setFrequencyLabel(preset.frequencyLabel);
+    setTotalDays(preset.totalDays);
+    setDaysInput(String(preset.totalDays));
+    setDaysError(null);
+    setCadence(preset.cadence);
     setMotivationNote(preset.motivationNote);
     setActiveQuickPresetId(preset.id);
     setStakeError(null);
@@ -203,16 +247,43 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
 
   useEffect(() => {
     if (initialPreset) {
+      setCreateMode('solo');
       setSelectedCategoryId(initialPreset.categoryId);
       setAmount(initialPreset.amount);
+      setAmountInput(String(initialPreset.amount));
+      setAmountError(null);
       setToken(initialPreset.token);
       setAlarmHour(initialPreset.alarmHour);
       setAlarmMinute(initialPreset.alarmMinute);
+      const nextDays = clampRecurringDays(initialPreset.totalDays ?? 7);
+      setTotalDays(nextDays);
+      setDaysInput(String(nextDays));
+      setDaysError(null);
+      setCadence(nextDays <= 1 ? 'once' : 'daily');
+      if (initialPreset.visibility) {
+        setVisibility(initialPreset.visibility);
+      }
       setMotivationNote(initialPreset.motivationNote);
       setActiveQuickPresetId(null);
       onClearPreset?.();
     }
   }, [initialPreset, onClearPreset]);
+
+  useEffect(() => {
+    if (initialVisibility) {
+      setCreateMode('solo');
+      setVisibility(initialVisibility);
+      onClearInitialVisibility?.();
+    }
+  }, [initialVisibility, onClearInitialVisibility]);
+
+  useEffect(() => {
+    if (initialCreateMode === 'track-pools' || initialTrackPoolId) {
+      setCreateMode('track-pools');
+    } else if (initialCreateMode === 'solo') {
+      setCreateMode('solo');
+    }
+  }, [initialCreateMode, initialTrackPoolId]);
 
   const selectedCategory =
     categories.find((c) => c.id === selectedCategoryId) || categories[0];
@@ -235,33 +306,86 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
   const clockDisplay = formatClockTime12h(alarmHour, alarmMinute);
   const nextDeadlineOffset = formatTimeUntilNextDeadline(alarmHour, alarmMinute, nowMs);
   const tokenCfg = TOKEN_CONFIGS[token];
+  const scheduleLabel = formatScheduleLabel(totalDays, cadence);
+  const payoutBreakdown = calculateDailyPayoutBreakdown({
+    totalStake: Number.isFinite(amount) ? amount : 0,
+    totalDays,
+    token,
+    visibility,
+  });
 
-  const handleAmountChange = (val: number) => {
+  const handleAmountChange = (val: number, raw?: string) => {
+    if (raw !== undefined) {
+      setAmountInput(raw);
+    } else {
+      setAmountInput(String(val));
+    }
     setAmount(val);
     if (!Number.isFinite(val) || val < 1) {
       setAmountError('Minimum stake amount is $1.');
-    } else if (val > 500) {
-      setAmountError('Maximum single Devnet stake is $500.');
+    } else if (val > 1_000_000) {
+      setAmountError('Enter a realistic stake up to $1,000,000.');
     } else {
       setAmountError(null);
     }
   };
 
+  const handleSelectDays = (nextDays: number, nextCadence?: RecurrenceCadence) => {
+    const safe = clampRecurringDays(nextDays);
+    setTotalDays(safe);
+    setDaysInput(String(safe));
+    setDaysError(null);
+    if (safe === 1) {
+      setCadence('once');
+    } else if (nextCadence) {
+      setCadence(nextCadence);
+    } else if (cadence === 'once') {
+      setCadence('daily');
+    }
+  };
+
+  const handleCustomDaysInput = (raw: string) => {
+    setDaysInput(raw);
+    if (raw.trim() === '') {
+      setDaysError('Enter at least 1 day.');
+      return;
+    }
+    const parsed = Math.round(Number(raw));
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 365) {
+      setDaysError('Recurring duration must be between 1 and 365 days.');
+      return;
+    }
+    setDaysError(null);
+    setTotalDays(parsed);
+    setCadence((prev) => (parsed === 1 ? 'once' : prev === 'once' ? 'daily' : prev));
+  };
+
   const handleLockStake = async () => {
     setStakeError(null);
-    if (!Number.isFinite(amount) || amount < 1 || amount > 500) {
-      setAmountError('Enter a valid stake between $1 and $500.');
+    if (!Number.isFinite(amount) || amount < 1 || amount > 1_000_000) {
+      setAmountError('Enter a valid stake of $1 or more.');
+      return;
+    }
+    if (!Number.isFinite(totalDays) || totalDays < 1 || totalDays > 365 || daysError) {
+      setDaysError('Enter a recurring duration between 1 and 365 days.');
       return;
     }
     try {
       await onCreateStake({
         category: selectedCategory,
-        amount,
+        amount: Number(amount.toFixed(2)),
         token,
         alarmHour,
         alarmMinute,
         motivationNote: motivationNote.trim() || undefined,
-        frequencyLabel,
+        frequencyLabel: scheduleLabel,
+        visibility,
+        poolName:
+          visibility === 'community' && communityPoolName.trim()
+            ? communityPoolName.trim()
+            : undefined,
+        totalDays,
+        recurrencePattern: totalDays === 1 ? 'once' : cadence,
       });
     } catch (err) {
       setStakeError(err instanceof Error ? err.message : 'Failed to lock stake.');
@@ -316,39 +440,66 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
               <span>Back to Today</span>
             </button>
             <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-[#111114] tracking-tight">
-              Create Habit <span className="text-[#F16A2E]">&amp; Dedication Stake</span>
+              {createMode === 'track-pools' ? (
+                <>
+                  Accountability <span className="text-[#F16A2E]">Track Pools</span>
+                </>
+              ) : visibility === 'community' ? (
+                <>
+                  Create Public <span className="text-[#F16A2E]">Community Pool</span>
+                </>
+              ) : (
+                <>
+                  Create Habit <span className="text-[#F16A2E]">&amp; Dedication Stake</span>
+                </>
+              )}
             </h1>
             <p className="text-sm text-[#6B6663]">
-              Pick your habit, deadline, and stake—the exact AI verification target stays
-              randomized until your alarm rings.
+              {createMode === 'track-pools'
+                ? 'Stake USDC or SKR on multi-day Steps, Gym, or Study pools with daily on-chain SHA-256 proofs and Solscan-verifiable settlements.'
+                : visibility === 'community'
+                  ? 'Open your habit to the public—anyone on Explore can see the exact stake amount, recurring cycle, and join in one tap.'
+                  : 'Pick your habit, recurring days, deadline, and stake—keep it solo or open it to the public anytime before locking.'}
             </p>
           </div>
         </div>
 
-        <div className="inline-flex items-center p-1 rounded-full bg-white border border-[#EFE2D9] shadow-[0_4px_14px_rgba(24,20,18,0.04)] self-start">
+        <div className="inline-flex items-center p-1 rounded-full bg-white border border-[#EFE2D9] shadow-[0_4px_14px_rgba(24,20,18,0.04)] self-start max-w-full">
           <button
             type="button"
-            className="min-h-[38px] px-4 py-1.5 rounded-full bg-[#111114] text-white text-xs font-bold whitespace-nowrap"
+            onClick={() => setCreateMode('solo')}
+            className={`min-h-[40px] px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${
+              createMode === 'solo'
+                ? 'bg-[#111114] text-white'
+                : 'text-[#6B6663] hover:text-[#111114]'
+            }`}
           >
-            Solo Stake
+            Habit Stake
           </button>
           <button
             type="button"
-            onClick={() => onNavigateTab('hunts')}
-            className="min-h-[38px] px-4 py-1.5 rounded-full text-[#6B6663] hover:text-[#111114] text-xs font-bold whitespace-nowrap"
+            onClick={() => setCreateMode('track-pools')}
+            className={`min-h-[40px] px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${
+              createMode === 'track-pools'
+                ? 'bg-[#111114] text-white'
+                : 'text-[#6B6663] hover:text-[#111114]'
+            }`}
           >
-            GPS Hunt
-          </button>
-          <button
-            type="button"
-            onClick={() => onNavigateTab('squads')}
-            className="min-h-[38px] px-4 py-1.5 rounded-full text-[#6B6663] hover:text-[#111114] text-xs font-bold whitespace-nowrap"
-          >
-            Community
+            Track Pools
           </button>
         </div>
       </div>
 
+      {createMode === 'track-pools' ? (
+        <AccountabilityPoolsWorkspace
+          wallet={wallet}
+          escrowWallet={treasuryConfig?.escrowWallet || null}
+          treasuryWallet={treasuryConfig?.treasuryWallet || null}
+          initialPoolId={initialTrackPoolId || null}
+          onClearInitialSelection={onClearTrackPoolNavigation}
+        />
+      ) : (
+      <>
       {/* Quick Stake Trending Presets Carousel */}
       <section className="space-y-3" aria-label="Quick Stake trending presets">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -466,40 +617,95 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
         </div>
       </section>
 
-      {/* Compact 4-Step Guided Summary Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        {[
-          { num: '1', label: 'Habit', value: selectedCategory.name, icon: Sparkles },
-          { num: '2', label: 'Cadence', value: frequencyLabel, icon: Calendar },
-          { num: '3', label: 'Deadline', value: clockDisplay.full, icon: Clock },
-          { num: '4', label: 'Stake', value: `$${Number.isFinite(amount) ? amount : 0} ${token}`, icon: Wallet },
-        ].map((step) => {
-          const Icon = step.icon;
-          return (
-            <div
-              key={step.num}
-              className="rounded-2xl bg-white border border-[#EFE2D9] px-3.5 py-2.5 flex items-center gap-2.5 min-w-0"
-            >
-              <span className="w-8 h-8 rounded-xl bg-[#FFF3EC] text-[#F16A2E] flex items-center justify-center shrink-0">
-                <Icon className="w-4 h-4" />
-              </span>
-              <div className="min-w-0">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-[#877F7A]">
-                  {step.num}. {step.label}
-                </div>
-                <div className="text-xs font-bold text-[#111114] truncate tabular-nums">
-                  {step.value}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
       {/* Main 2-Column Guided Flow */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left: Step 1 Category + Step 2 Frequency & Motivation */}
+        {/* Left: Visibility + Step 1 Category + Step 2 Dynamic Recurring Schedule & Motivation */}
         <div className="lg:col-span-7 space-y-5">
+          {/* Unified Audience / Visibility Switcher (Solo default -> Public Community opt-in) */}
+          <div className="actake-card p-5 space-y-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-display text-sm font-extrabold text-[#111114]">
+                  Who Can Join This Stake?
+                </div>
+                <p className="text-xs text-[#6B6663] mt-0.5">
+                  {visibility === 'community'
+                    ? 'Listed publicly on Explore — joiners see your exact buy-in, cycle length, and daily unlock.'
+                    : 'Private solo commitment by default. Switch to Public Community to let anyone join.'}
+                </p>
+              </div>
+              <div
+                role="radiogroup"
+                aria-label="Stake visibility"
+                className="inline-flex items-center p-1 rounded-full bg-[#FFF4EE] border border-[#F2E3DA] self-start sm:self-auto shrink-0"
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={visibility === 'solo'}
+                  onClick={() => setVisibility('solo')}
+                  className={`min-h-[42px] px-3.5 py-1.5 rounded-full text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                    visibility === 'solo'
+                      ? 'bg-[#111114] text-white shadow-xs'
+                      : 'text-[#6B6663] hover:text-[#111114]'
+                  }`}
+                >
+                  <Lock className="w-3.5 h-3.5 shrink-0" />
+                  <span>Solo</span>
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={visibility === 'community'}
+                  onClick={() => setVisibility('community')}
+                  className={`min-h-[42px] px-3.5 py-1.5 rounded-full text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                    visibility === 'community'
+                      ? 'bg-[#F16A2E] text-white shadow-xs'
+                      : 'text-[#6B6663] hover:text-[#111114]'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5 shrink-0" />
+                  <span>Public Community</span>
+                </button>
+              </div>
+            </div>
+
+            {visibility === 'community' && (
+              <div className="pt-3 border-t border-[#F4ECE7] space-y-2.5">
+                <div>
+                  <label
+                    htmlFor="community-pool-name-input"
+                    className="block text-xs font-semibold text-[#111114] mb-1.5"
+                  >
+                    Community Pool Name <span className="font-normal text-[#877F7A]">(Optional — defaults to {selectedCategory.name})</span>
+                  </label>
+                  <input
+                    id="community-pool-name-input"
+                    type="text"
+                    maxLength={80}
+                    value={communityPoolName}
+                    onChange={(e) => setCommunityPoolName(e.target.value)}
+                    placeholder={`e.g., ${selectedCategory.name} Accountability Club`}
+                    className="w-full min-h-[46px] rounded-2xl bg-[#FFF8F4] border border-[#F2E3DA] px-4 py-2.5 text-sm text-[#111114] placeholder:text-[#9A938E] focus:outline-none focus:border-[#F16A2E]"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#6B6663] tabular-nums">
+                  <Users className="w-3.5 h-3.5 text-[#F16A2E] shrink-0" />
+                  <span>Public joiner preview:</span>
+                  <span className="font-mono font-bold text-[#111114]">
+                    ${Number.isFinite(amount) && amount >= 1 ? amount.toFixed(2) : '0.00'} {token} buy-in
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>{scheduleLabel}</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-mono font-semibold text-[#16A34A]">
+                    ${payoutBreakdown.baseDailyPrincipal.toFixed(2)}/day unlock
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-base font-extrabold text-[#111114]">
@@ -558,31 +764,123 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
             </div>
           </div>
 
-          {/* Step 2: Frequency & Motivation Note */}
+          {/* Step 2: Dynamic Recurring Duration & Motivation Note */}
           <div className="actake-card p-5 space-y-4">
-            <div>
-              <div className="font-display text-sm font-extrabold text-[#111114] mb-2.5">
-                2. Frequency &amp; Motivation Note
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div className="font-display text-sm font-extrabold text-[#111114]">
+                  2. Recurring Duration &amp; Daily Split
+                </div>
+                <span className="text-xs font-mono font-semibold text-[#F16A2E] tabular-nums">
+                  {scheduleLabel}
+                </span>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {FREQUENCIES.map((freq) => (
-                  <button
-                    key={freq}
-                    type="button"
-                    onClick={() => setFrequencyLabel(freq)}
-                    className={`min-h-[42px] px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${
-                      frequencyLabel === freq
-                        ? 'bg-[#F16A2E] text-white'
-                        : 'bg-[#FFF4EE] text-[#111114] hover:bg-[#FFE5D6]'
-                    }`}
+
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {RECURRING_DAY_PRESETS.map((preset) => {
+                  const isActive = totalDays === preset.days;
+                  return (
+                    <button
+                      key={preset.days}
+                      type="button"
+                      onClick={() => handleSelectDays(preset.days, preset.cadence)}
+                      className={`min-h-[48px] px-2.5 py-2 rounded-2xl text-center transition-colors border ${
+                        isActive
+                          ? 'bg-[#111114] border-[#111114] text-white'
+                          : 'bg-[#FFF8F4] border-[#F2E3DA] text-[#111114] hover:border-[#F16A2E]/60'
+                      }`}
+                    >
+                      <div className="text-xs font-bold leading-tight whitespace-nowrap">
+                        {preset.shortLabel}
+                      </div>
+                      <div
+                        className={`text-[10px] mt-0.5 whitespace-nowrap ${
+                          isActive ? 'text-white/70' : 'text-[#877F7A]'
+                        }`}
+                      >
+                        {preset.subLabel}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Dynamic Custom Days Stepper + Optional Cadence */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-2">
+                  <label
+                    htmlFor="custom-recurring-days"
+                    className="text-xs font-semibold text-[#6B6663] whitespace-nowrap"
                   >
-                    {freq}
-                  </button>
-                ))}
+                    Custom Days
+                  </label>
+                  <div className="inline-flex items-center rounded-xl bg-[#FFF8F4] border border-[#F2E3DA] p-0.5">
+                    <button
+                      type="button"
+                      aria-label="Decrease recurring days"
+                      onClick={() => handleSelectDays(Math.max(1, totalDays - 1))}
+                      className="w-10 h-10 rounded-lg hover:bg-[#FFE5D6] text-[#111114] flex items-center justify-center transition-colors"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      id="custom-recurring-days"
+                      type="number"
+                      min={1}
+                      max={365}
+                      step={1}
+                      value={daysInput}
+                      onChange={(e) => handleCustomDaysInput(e.target.value)}
+                      className="w-14 h-10 bg-transparent text-center font-mono text-sm font-bold text-[#111114] tabular-nums focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Increase recurring days"
+                      onClick={() => handleSelectDays(Math.min(365, totalDays + 1))}
+                      className="w-10 h-10 rounded-lg hover:bg-[#FFE5D6] text-[#111114] flex items-center justify-center transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <span className="text-xs text-[#877F7A]">
+                    {totalDays === 1 ? 'time' : 'days'}
+                  </span>
+                </div>
+
+                {totalDays > 1 && (
+                  <div className="inline-flex items-center p-1 rounded-full bg-[#FFF4EE] border border-[#F2E3DA] self-start sm:self-auto">
+                    {(
+                      [
+                        { id: 'daily', label: 'Every Day' },
+                        { id: 'weekdays', label: 'Weekdays' },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setCadence(opt.id)}
+                        className={`min-h-[36px] px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${
+                          cadence === opt.id
+                            ? 'bg-[#F16A2E] text-white'
+                            : 'text-[#6B6663] hover:text-[#111114]'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+
+              {daysError && (
+                <div className="text-xs text-[#DC2626] font-medium flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{daysError}</span>
+                </div>
+              )}
             </div>
 
-            <div>
+            <div className="pt-2 border-t border-[#F4ECE7]">
               <label
                 htmlFor="motivation-note-input"
                 className="block text-xs font-semibold text-[#6B6663] mb-1.5"
@@ -757,18 +1055,24 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
 
             <div className="flex items-center gap-2">
               <label htmlFor="custom-stake-amount" className="text-xs font-semibold text-[#6B6663] whitespace-nowrap">
-                Custom ($1–$500)
+                Custom ($1+)
               </label>
-              <input
-                id="custom-stake-amount"
-                type="number"
-                min={1}
-                max={500}
-                step={1}
-                value={amount}
-                onChange={(e) => handleAmountChange(Number(e.target.value))}
-                className="flex-1 min-h-[42px] rounded-xl bg-[#FFF8F4] border border-[#F2E3DA] px-3 py-1.5 font-mono text-sm font-bold text-[#111114] focus:outline-none focus:border-[#F16A2E]"
-              />
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm font-bold text-[#877F7A]">
+                  $
+                </span>
+                <input
+                  id="custom-stake-amount"
+                  type="number"
+                  min={1}
+                  step="any"
+                  inputMode="decimal"
+                  value={amountInput}
+                  onChange={(e) => handleAmountChange(Number(e.target.value), e.target.value)}
+                  placeholder="Enter any amount ($1+)"
+                  className="w-full min-h-[44px] rounded-xl bg-[#FFF8F4] border border-[#F2E3DA] pl-7 pr-3 py-1.5 font-mono text-sm font-bold text-[#111114] tabular-nums focus:outline-none focus:border-[#F16A2E]"
+                />
+              </div>
             </div>
 
             {amountError && (
@@ -777,10 +1081,61 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
                 <span>{amountError}</span>
               </div>
             )}
+
+            {/* Dynamic Daily Payout Breakdown (Split Evenly Across N Days) */}
+            <div className="rounded-2xl bg-[#111114] text-white p-4 space-y-2.5 text-xs tabular-nums">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-white/70">
+                  {totalDays === 1 ? 'One-Time Payout Preview' : `Per-Day Payout (${totalDays} Days)`}
+                </span>
+                <span className="font-mono font-bold text-[#4ADE80]">
+                  {visibility === 'community' ? 'Public Pool' : 'Solo Stake'}
+                </span>
+              </div>
+
+              <div className="flex items-baseline justify-between gap-2 pt-0.5">
+                <span className="text-white/75">
+                  {totalDays === 1 ? 'Est. Payout on Completion' : 'Est. Payout Per Completed Day'}
+                </span>
+                <span className="font-mono text-lg font-extrabold text-white">
+                  ${payoutBreakdown.estNetDailyPayout.toFixed(2)} {token}
+                </span>
+              </div>
+
+              <div className="pt-2 border-t border-white/10 space-y-1.5 text-[11px] text-white/70">
+                <div className="flex justify-between gap-2">
+                  <span>Principal unlocked / day</span>
+                  <span className="font-mono font-semibold text-white">
+                    ${payoutBreakdown.baseDailyPrincipal.toFixed(2)}
+                    {payoutBreakdown.hasFinalDayRemainder
+                      ? ` (Day ${totalDays}: $${payoutBreakdown.finalDayPrincipal.toFixed(2)})`
+                      : ''}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span>Est. slashed bonus / day</span>
+                  <span className="font-mono font-semibold text-[#4ADE80]">
+                    +${payoutBreakdown.estDailyBonus.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span>Full {totalDays === 1 ? 'completion' : `${totalDays}-day`} est. total</span>
+                  <span className="font-mono font-semibold text-white">
+                    ${payoutBreakdown.estFullCyclePayout.toFixed(2)} {token}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Escrow & Pollar Payment Breakdown */}
           <div className="rounded-2xl bg-[#FFF8F4] border border-[#F4E6DD] p-4 space-y-2 text-xs">
+            <div className="flex justify-between items-center gap-2">
+              <span className="text-[#6B6663]">Visibility</span>
+              <span className="font-bold text-[#111114]">
+                {visibility === 'community' ? 'Public · Open on Explore' : 'Solo · Private'}
+              </span>
+            </div>
             <div className="flex justify-between items-center gap-2">
               <span className="text-[#6B6663]">Payment Rail</span>
               {isPollarPaying ? (
@@ -836,12 +1191,17 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
               </span>
             </div>
             <div className="flex justify-between gap-2">
-              <span className="text-[#6B6663]">Missed Personal Stake</span>
-              <span className="font-semibold text-[#111114]">
-                50% Owner / 50% → Actake Treasury
-                {treasuryConfig?.treasuryWallet
-                  ? ` (${treasuryConfig.treasuryWallet.slice(0, 4)}...${treasuryConfig.treasuryWallet.slice(-4)})`
-                  : ''}
+              <span className="text-[#6B6663]">
+                {visibility === 'community' ? 'Missed Member Stake' : 'Missed Personal Stake'}
+              </span>
+              <span className="font-semibold text-[#111114] text-right">
+                {visibility === 'community'
+                  ? 'Slashed to verified pool members'
+                  : `50% Owner / 50% → Actake Treasury${
+                      treasuryConfig?.treasuryWallet
+                        ? ` (${treasuryConfig.treasuryWallet.slice(0, 4)}...${treasuryConfig.treasuryWallet.slice(-4)})`
+                        : ''
+                    }`}
               </span>
             </div>
             {(() => {
@@ -936,12 +1296,14 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
 
           <button
             type="button"
-            disabled={submitting || Boolean(amountError)}
+            disabled={submitting || Boolean(amountError) || Boolean(daysError)}
             onClick={() => void handleLockStake()}
             className="w-full min-h-[52px] px-5 py-3 rounded-full bg-[#111114] hover:bg-[#F16A2E] text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-75 shadow-sm"
           >
             {submitting ? (
               <Loader2 className="w-4 h-4 animate-spin text-[#F16A2E]" />
+            ) : visibility === 'community' ? (
+              <Globe className="w-4 h-4" />
             ) : (
               <Wallet className="w-4 h-4" />
             )}
@@ -949,10 +1311,16 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
               {submitting
                 ? isPollarPaying
                   ? 'Submitting Payment via Pollar...'
-                  : 'Signing join_pool on Devnet...'
-                : isPollarPaying
-                  ? `Pay & Lock $${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} ${token} via Pollar`
-                  : `Save & Lock $${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} ${token}`}
+                  : visibility === 'community'
+                    ? 'Publishing Public Pool on Devnet...'
+                    : 'Signing join_pool on Devnet...'
+                : visibility === 'community'
+                  ? isPollarPaying
+                    ? `Publish Public Pool & Pay $${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} ${token}`
+                    : `Publish Public Pool & Lock $${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} ${token}`
+                  : isPollarPaying
+                    ? `Pay & Lock $${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} ${token} via Pollar`
+                    : `Save & Lock $${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} ${token}`}
             </span>
           </button>
 
@@ -1051,6 +1419,8 @@ export const MissionsView: React.FC<MissionsViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

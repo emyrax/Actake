@@ -144,3 +144,19 @@ export interface ConfirmGeoDropClaimResponse {
   explorerUrl: string;
   solscanUrl: string;
 }
+
+export type HunterPresenceScope = 'this-hunt' | 'all-hunts';
+
+export interface LiveHunterPresence {
+  hunterId: string;
+  displayLabel: string;
+  color: string;
+  huntId: string;
+  huntTitle: string;
+  lat: number;
+  lng: number;
+  distanceToTargetMeters: number;
+  insideGeofence: boolean;
+  updatedAt: number;
+}
+

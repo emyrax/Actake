@@ -1466,11 +1466,15 @@ export async function computePoolSettlementQuote(params: {
   userPubkey: string;
   fallbackPrincipal?: number;
   fallbackToken?: PoolTokenSymbol;
+  totalDays?: number;
+  dayIndex?: number;
 }): Promise<{
   poolId: string;
   poolTitle: string;
   poolPubkey: string;
   tokenSymbol: PoolTokenSymbol;
+  totalDays: number;
+  dayIndex: number;
   principalAmount: number;
   grossSlashedShare: number;
   protocolFeePct: number;
@@ -1482,9 +1486,24 @@ export async function computePoolSettlementQuote(params: {
 }> {
   const pool = await getPoolById(params.poolId);
   const tokenSymbol: PoolTokenSymbol = pool?.tokenSymbol || params.fallbackToken || 'USDC';
-  const principalAmount = Number(
+  const totalPrincipal = Number(
     (pool?.stakeAmount ?? params.fallbackPrincipal ?? 10).toFixed(2)
   );
+  const effectiveTotalDays = Math.max(
+    1,
+    Math.min(365, Math.round(params.totalDays ?? pool?.totalDays ?? 1))
+  );
+  const effectiveDayIndex = Math.max(
+    1,
+    Math.min(effectiveTotalDays, Math.round(params.dayIndex ?? 1))
+  );
+  const baseDailyPrincipal = Math.floor((totalPrincipal / effectiveTotalDays) * 100) / 100;
+  const finalDayPrincipal = Number(
+    (totalPrincipal - baseDailyPrincipal * (effectiveTotalDays - 1)).toFixed(2)
+  );
+  const principalAmount =
+    effectiveDayIndex >= effectiveTotalDays ? finalDayPrincipal : baseDailyPrincipal;
+
   const protocolFeePct = tokenSymbol === 'SKR' ? 0 : 1.5;
 
   let winnersCount = 1;
@@ -1497,23 +1516,31 @@ export async function computePoolSettlementQuote(params: {
     slashedPotAvailable =
       pool.slashedPotAvailable > 0
         ? pool.slashedPotAvailable
-        : Number((principalAmount * (tokenSymbol === 'SKR' ? 0.24 : 0.18) * winnersCount).toFixed(2));
+        : Number((totalPrincipal * (tokenSymbol === 'SKR' ? 0.24 : 0.18) * winnersCount).toFixed(2));
   } else {
     slashedPotAvailable = Number(
-      (principalAmount * (tokenSymbol === 'SKR' ? 0.24 : 0.18)).toFixed(2)
+      (totalPrincipal * (tokenSymbol === 'SKR' ? 0.24 : 0.18)).toFixed(2)
     );
   }
 
-  const grossSlashedShare = Number((slashedPotAvailable / winnersCount).toFixed(2));
-  const protocolFee = Number(((grossSlashedShare * protocolFeePct) / 100).toFixed(2));
-  const netSlashedBonus = Number(Math.max(0, grossSlashedShare - protocolFee).toFixed(2));
-  const totalPayout = Number((principalAmount + netSlashedBonus).toFixed(2));
+  const grossSlashedShare = Number(
+    (slashedPotAvailable / winnersCount / effectiveTotalDays).toFixed(2)
+  );
+  const protocolFee = Number(
+    (((principalAmount + grossSlashedShare) * protocolFeePct) / 100).toFixed(2)
+  );
+  const netSlashedBonus = Number(Math.max(0, grossSlashedShare).toFixed(2));
+  const totalPayout = Number(
+    Math.max(0, principalAmount + netSlashedBonus - protocolFee).toFixed(2)
+  );
 
   return {
     poolId: pool?.id || params.poolId,
     poolTitle: pool?.title || 'Actake Commitment Pool',
     poolPubkey: pool?.poolPubkey || 'ACTKescrow111111111111111111111111111111111',
     tokenSymbol,
+    totalDays: effectiveTotalDays,
+    dayIndex: effectiveDayIndex,
     principalAmount,
     grossSlashedShare,
     protocolFeePct,
@@ -1727,15 +1754,18 @@ export async function recordTreasuryLedgerEntry(input: {
 }
 
 /**
- * Records a missed personal (solo) commitment slash:
- * - Marks the participant slashed (idempotent).
- * - Splits the forfeited stake 50% back to the stake owner and 50% to the Actake Fee Treasury Ledger.
+ * Records a missed personal (solo) commitment slash matching the Anchor smart contract:
+ * - If totalDays === 1 ("Once"): 50% goes to Actake Fee Treasury and 50% returns to the owner.
+ * - If totalDays > 1 (Multi-day recurring): ONLY that missed day's claimable daily ratio
+ *   goes to Actake Fee Treasury, keeping all remaining days' principal safe in escrow.
  */
 export async function recordPersonalSlash(input: {
   poolId: string;
   poolTitle?: string;
   userPubkey: string;
   stakeAmount: number;
+  totalDays?: number;
+  dayIndex?: number;
   tokenSymbol: PoolTokenSymbol;
   escrowWallet: string;
   treasuryWallet: string;
@@ -1747,17 +1777,43 @@ export async function recordPersonalSlash(input: {
   alreadySlashed: boolean;
   treasuryAmount: number;
   ownerRefundAmount: number;
+  totalDays: number;
+  dayIndex: number;
+  slashRule: 'once_50_50' | 'multi_day_daily_ratio';
 }> {
   const pool = await getPoolById(input.poolId);
   const title = input.poolTitle?.trim() || pool?.title || 'Personal Accountability Stake';
   const fullStakeAmount = Number((pool?.stakeAmount ?? input.stakeAmount).toFixed(2));
-  const treasuryAmount = Number((fullStakeAmount * 0.5).toFixed(2));
-  const ownerRefundAmount = Number((fullStakeAmount - treasuryAmount).toFixed(2));
+  const totalDays = Math.max(
+    1,
+    Math.min(365, Math.round(input.totalDays ?? pool?.totalDays ?? 1))
+  );
+  const dayIndex = Math.max(1, Math.min(totalDays, Math.round(input.dayIndex ?? 1)));
+
+  let treasuryAmount: number;
+  let ownerRefundAmount: number;
+  let slashRule: 'once_50_50' | 'multi_day_daily_ratio';
+
+  if (totalDays === 1) {
+    treasuryAmount = Number((fullStakeAmount * 0.5).toFixed(2));
+    ownerRefundAmount = Number((fullStakeAmount - treasuryAmount).toFixed(2));
+    slashRule = 'once_50_50';
+  } else {
+    const baseDaily = Math.floor((fullStakeAmount / totalDays) * 100) / 100;
+    const isFinalDay = dayIndex === totalDays;
+    treasuryAmount = isFinalDay
+      ? Number((fullStakeAmount - baseDaily * (totalDays - 1)).toFixed(2))
+      : Number(baseDaily.toFixed(2));
+    ownerRefundAmount = 0;
+    slashRule = 'multi_day_daily_ratio';
+  }
+
   const tokenSymbol: PoolTokenSymbol = pool?.tokenSymbol || input.tokenSymbol;
+  const ledgerPoolKey = totalDays > 1 ? `${input.poolId}:day:${dayIndex}` : input.poolId;
 
   const { entry, duplicate } = await recordTreasuryLedgerEntry({
-    poolId: input.poolId,
-    poolTitle: title,
+    poolId: ledgerPoolKey,
+    poolTitle: totalDays > 1 ? `${title} (Missed Day ${dayIndex}/${totalDays})` : title,
     userPubkey: input.userPubkey,
     entryType: 'solo_slash',
     tokenSymbol,
@@ -1770,7 +1826,15 @@ export async function recordPersonalSlash(input: {
   });
 
   if (duplicate) {
-    return { entry, alreadySlashed: true, treasuryAmount, ownerRefundAmount };
+    return {
+      entry,
+      alreadySlashed: true,
+      treasuryAmount,
+      ownerRefundAmount,
+      totalDays,
+      dayIndex,
+      slashRule,
+    };
   }
 
   const sb = getSupabase();
@@ -1778,14 +1842,14 @@ export async function recordPersonalSlash(input: {
     try {
       await sb
         .from('participants')
-        .update({ is_slashed: true, streak_days: 0 })
+        .update({ is_slashed: totalDays === 1, streak_days: 0 })
         .eq('pool_id', pool.id)
         .eq('user_pubkey', input.userPubkey);
       await sb
         .from('pools')
         .update({
           slashed_pot_available: Number((pool.slashedPotAvailable + treasuryAmount).toFixed(2)),
-          is_settled: pool.poolType === 0 ? true : pool.isSettled,
+          is_settled: pool.poolType === 0 && totalDays === 1 ? true : pool.isSettled,
         })
         .eq('id', pool.id);
     } catch (err) {
@@ -1797,17 +1861,25 @@ export async function recordPersonalSlash(input: {
   if (memParts) {
     const found = memParts.find((p) => p.userPubkey === input.userPubkey);
     if (found) {
-      found.isSlashed = true;
+      if (totalDays === 1) found.isSlashed = true;
       found.streakDays = 0;
     }
   }
   const memPool = memoryPools.get(input.poolId);
   if (memPool) {
     memPool.slashedPotAvailable = Number((memPool.slashedPotAvailable + treasuryAmount).toFixed(2));
-    if (memPool.poolType === 0) memPool.isSettled = true;
+    if (memPool.poolType === 0 && totalDays === 1) memPool.isSettled = true;
   }
 
-  return { entry, alreadySlashed: false, treasuryAmount, ownerRefundAmount };
+  return {
+    entry,
+    alreadySlashed: false,
+    treasuryAmount,
+    ownerRefundAmount,
+    totalDays,
+    dayIndex,
+    slashRule,
+  };
 }
 
 export async function getTreasurySummary(config: TreasuryConfigInput): Promise<{
@@ -1895,5 +1967,90 @@ export async function getTreasurySummary(config: TreasuryConfigInput): Promise<{
     recentEntries: entries.slice(0, 15),
   };
 }
+
+export async function getAllContestantPoolRecords(): Promise<{
+  storageMode: 'supabase' | 'memory';
+  pools: StoredPool[];
+  participants: StoredParticipant[];
+  checkins: StoredCheckin[];
+  settlements: StoredSettlement[];
+}> {
+  const pools = await listPools();
+  const poolMap = new Map(pools.map((p) => [p.id, p]));
+  const sb = getSupabase();
+
+  if (sb) {
+    try {
+      const [partRes, checkRes, settleRes] = await Promise.all([
+        sb.from('participants').select('*').limit(1000),
+        sb.from('checkins').select('*').order('created_at', { ascending: false }).limit(500),
+        sb.from('settlements').select('*').order('settled_at', { ascending: false }).limit(500),
+      ]);
+
+      if (!partRes.error && !checkRes.error) {
+        const participants = (partRes.data || []).map((r) =>
+          mapParticipantRow(r as Record<string, unknown>)
+        );
+        const checkins = (checkRes.data || []).map((r) => {
+          const mapped = mapCheckinRow(r as Record<string, unknown>);
+          const pool = poolMap.get(mapped.poolId);
+          return {
+            ...mapped,
+            poolTitle: pool?.title || 'Actake Pool',
+            tokenSymbol: pool?.tokenSymbol || 'USDC',
+          };
+        });
+        const settlements: StoredSettlement[] = !settleRes.error && Array.isArray(settleRes.data)
+          ? settleRes.data.map((r) => {
+              const row = r as Record<string, unknown>;
+              return {
+                id: String(row.id ?? ''),
+                poolId: String(row.pool_id ?? ''),
+                userPubkey: String(row.user_pubkey ?? ''),
+                tokenSymbol: (row.token_symbol === 'SKR' ? 'SKR' : 'USDC') as PoolTokenSymbol,
+                principalAmount: Number(row.principal_amount ?? 0),
+                slashedBonus: Number(row.slashed_bonus ?? 0),
+                protocolFee: Number(row.protocol_fee ?? 0),
+                totalPayout: Number(row.total_payout ?? 0),
+                txSignature: String(row.tx_signature ?? ''),
+                onchainConfirmed: Boolean(row.onchain_confirmed),
+                oracleSignature: String(row.oracle_signature ?? ''),
+                settledAt: String(row.settled_at ?? new Date().toISOString()),
+              };
+            })
+          : [];
+        return {
+          storageMode: 'supabase',
+          pools,
+          participants,
+          checkins,
+          settlements,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        'Supabase getAllContestantPoolRecords exception:',
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  const allMemoryParticipants: StoredParticipant[] = [];
+  for (const list of memoryParticipants.values()) {
+    allMemoryParticipants.push(...list);
+  }
+  return {
+    storageMode: 'memory',
+    pools,
+    participants: allMemoryParticipants,
+    checkins: [...memoryCheckins].sort(
+      (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
+    ),
+    settlements: [...memorySettlements].sort(
+      (a, b) => Date.parse(b.settledAt) - Date.parse(a.settledAt)
+    ),
+  };
+}
+
 
 

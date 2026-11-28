@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type L from 'leaflet';
 import {
   ArrowLeft,
   Camera,
@@ -38,8 +39,9 @@ import { useHighAccuracyGPS } from '../../hooks/hunts/useHighAccuracyGPS';
 import { useCompassHeading } from '../../hooks/hunts/useCompassHeading';
 import { useARSession } from '../../hooks/hunts/useARSession';
 import { ChestModel } from './ChestModel';
+import { CompetingHuntersLayer } from './CompetingHuntersLayer';
 import { GeofenceMap } from './GeofenceMap';
-import { HuntAiGuideDrawer } from './HuntAiGuideDrawer';
+import { buildHuntUrl } from '../../solana/actakeEscrow';
 
 export interface SignClaimTxResult {
   signature: string;
@@ -56,6 +58,7 @@ interface ARHuntViewportProps {
     claimMeta: VerifyGeoDropClaimResponse
   ) => Promise<SignClaimTxResult>;
   onHuntUpdated: (updated: GeoHuntRecord) => void;
+  onHuntClaimed?: (receipt: ConfirmGeoDropClaimResponse) => void;
   onNotify: (tone: 'success' | 'info' | 'error', title: string, detail?: string) => void;
   onBackToDirectory: () => void;
 }
@@ -68,6 +71,7 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
   walletPubkey,
   onSignClaimTx,
   onHuntUpdated,
+  onHuntClaimed,
   onNotify,
   onBackToDirectory,
 }) => {
@@ -84,9 +88,9 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
   const [arDockExpanded, setArDockExpanded] = useState(false);
   const [recenterSignal, setRecenterSignal] = useState(0);
 
-  // Conversational AI Scout drawer
-  const [aiGuideOpen, setAiGuideOpen] = useState(false);
-  const [pendingAiPrompt, setPendingAiPrompt] = useState<string | null>(null);
+  // Leaflet map handle shared with CompetingHuntersLayer + collapsible panel coordination
+  const [leafletMap, setLeafletMap] = useState<L.Map | null>(null);
+  const [rivalsSheetOpen, setRivalsSheetOpen] = useState(false);
 
   // Indoor Demo Mode simulation controls (never touches hardware GPS/magnetometer)
   const [demoDistanceMeters, setDemoDistanceMeters] = useState<number>(
@@ -233,16 +237,6 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
     setDemoControlsExpanded(false);
   };
 
-  const handleOpenAiWithPrompt = (prompt?: string) => {
-    setHintExpanded(false);
-    setInfoExpanded(false);
-    setShowGuidePopup(false);
-    if (prompt) {
-      setPendingAiPrompt(prompt);
-    }
-    setAiGuideOpen(true);
-  };
-
   const handleTapToUnlock = async () => {
     if (claiming || alreadyClaimed) return;
     if (!insideGeofence || !activeCoord) {
@@ -300,6 +294,7 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
       setClaimReceipt(confirmData);
       setArDockExpanded(true);
       onHuntUpdated(confirmData.hunt);
+      onHuntClaimed?.(confirmData);
       onNotify(
         'success',
         `${dropNoun} Unlocked!`,
@@ -316,7 +311,8 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
   };
 
   const handleShareFlex = async () => {
-    const shareText = `Just unlocked a ${hunt.rewardPerChest} ${hunt.tokenSymbol} AR GeoDrop at ${hunt.landmarkName} on Actake! ${
+    const huntShareUrl = buildHuntUrl(hunt.id);
+    const shareText = `Just unlocked a ${hunt.rewardPerChest} ${hunt.tokenSymbol} AR GeoDrop at ${hunt.landmarkName} on Actake! ${huntShareUrl}${
       claimReceipt?.solscanUrl ? `\nProof: ${claimReceipt.solscanUrl}` : ''
     }`;
     try {
@@ -324,13 +320,13 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
         await navigator.share({
           title: `Actake GeoDrop Unlocked — ${hunt.title}`,
           text: shareText,
-          url: window.location.href,
+          url: huntShareUrl,
         });
         return;
       }
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(shareText);
-        onNotify('success', 'Flex Copied', 'Shareable GeoDrop unlock caption copied to clipboard.');
+        onNotify('success', 'Flex Copied', 'Shareable GeoDrop unlock link copied to clipboard.');
       }
     } catch {
       // User dismissed share sheet
@@ -368,6 +364,7 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
             interactionMode="readonly"
             variant="fullscreen"
             recenterSignal={recenterSignal}
+            onMapReady={setLeafletMap}
           />
         </div>
       )}
@@ -490,6 +487,7 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
             type="button"
             onClick={() => {
               setHintExpanded(false);
+              setRivalsSheetOpen(false);
               setInfoExpanded((v) => !v);
             }}
             aria-expanded={infoExpanded}
@@ -516,6 +514,7 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
             onClick={() => {
               setInfoExpanded(false);
               setHintExpanded(false);
+              setRivalsSheetOpen(false);
               setShowGuidePopup(true);
             }}
             aria-label="Open Hunt Guide"
@@ -627,19 +626,6 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
             <div className="text-[11px] font-semibold text-[#F4976C]">{hunt.landmarkName}</div>
             <p className="text-xs text-white/85 leading-relaxed">{hunt.loreHint}</p>
           </div>
-
-          <button
-            type="button"
-            onClick={() =>
-              handleOpenAiWithPrompt(
-                'Give me a helpful directional hint and tip to find this hunt faster.'
-              )
-            }
-            className="w-full min-h-[42px] px-4 rounded-full bg-[#F16A2E] hover:bg-[#DC5A20] text-white text-xs font-bold inline-flex items-center justify-center gap-2 transition-colors"
-          >
-            <span aria-hidden="true">🤖</span>
-            <span>Talk to AI Scout for More Tips</span>
-          </button>
         </div>
       )}
 
@@ -663,7 +649,7 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
       )}
 
       {/* ==================================================================== */}
-      {/* RIGHT-SIDE FLOATING MAP CONTROLS: Recenter, Hint 💡, and AI Emoji 🤖  */}
+      {/* RIGHT-SIDE FLOATING MAP CONTROLS: Recenter, Hint 💡, Live Rivals      */}
       {/* ==================================================================== */}
       <div className="absolute right-3 bottom-[84px] sm:bottom-[92px] z-30 flex flex-col items-center gap-2.5">
         {showingFullScreenMap && (
@@ -682,6 +668,7 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
           type="button"
           onClick={() => {
             setInfoExpanded(false);
+            setRivalsSheetOpen(false);
             setHintExpanded((v) => !v);
           }}
           aria-label="Show hunt hint"
@@ -695,17 +682,22 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
           <Lightbulb className="w-4 h-4" />
         </button>
 
-        {/* AI Scout Emoji Trigger Button (Talks & gives tips!) */}
-        <button
-          type="button"
-          onClick={() => handleOpenAiWithPrompt()}
-          aria-label="Open AI Hunt Scout voice assistant"
-          className="w-[52px] h-[52px] rounded-full bg-[#141519]/95 border-2 border-[#F16A2E] hover:bg-[#1E2028] flex items-center justify-center text-2xl shadow-[0_10px_28px_rgba(241,106,46,0.42)] active:scale-95 transition-transform"
-        >
-          <span role="img" aria-hidden="true">
-            🤖
-          </span>
-        </button>
+        {/* Dedicated CompetingHuntersLayer: WebSocket presence, map dots, tooltips & opt-in sharing */}
+        <CompetingHuntersLayer
+          map={showingFullScreenMap ? leafletMap : null}
+          huntId={hunt.id}
+          walletPubkey={walletPubkey}
+          userCoord={activeCoord}
+          userDistanceMeters={activeDistanceMeters}
+          sensorsActive={experienceMode !== 'idle'}
+          panelOpen={rivalsSheetOpen}
+          onPanelOpenChange={setRivalsSheetOpen}
+          onBeforeOpenPanel={() => {
+            setInfoExpanded(false);
+            setHintExpanded(false);
+          }}
+          onFocusRivalMap={() => setSubView('map')}
+        />
       </div>
 
       {/* ==================================================================== */}
@@ -1060,9 +1052,8 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
                 </span>
                 <p className="leading-relaxed">
                   Follow the full-screen map into the highlighted{' '}
-                  <strong className="text-white">{hunt.radiusMeters}m geofence</strong>. Tap{' '}
-                  <strong className="text-white">💡</strong> for clues or{' '}
-                  <strong className="text-white">🤖</strong> to talk with your AI Scout.
+                  <strong className="text-white">{hunt.radiusMeters}m geofence</strong>. Hover or
+                  tap colored dots to track competing hunters&apos; distance and active hunt.
                 </p>
               </div>
               <div className="flex items-start gap-2.5">
@@ -1108,27 +1099,11 @@ export const ARHuntViewport: React.FC<ARHuntViewportProps> = ({
 
             <div className="text-[11px] text-white/50 flex items-center gap-1.5 pt-0.5">
               <ShieldCheck className="w-3.5 h-3.5 text-[#F4976C] shrink-0" />
-              <span>Camera, GPS & compass stay off until you enable them.</span>
+              <span>Camera, GPS, compass &amp; live sharing stay off until you enable them.</span>
             </div>
           </div>
         </div>
       )}
-
-      {/* ==================================================================== */}
-      {/* CONVERSATIONAL TALKING AI HUNT SCOUT DRAWER (🤖)                      */}
-      {/* ==================================================================== */}
-      <HuntAiGuideDrawer
-        open={aiGuideOpen}
-        onClose={() => setAiGuideOpen(false)}
-        hunt={hunt}
-        distanceMeters={activeDistanceMeters}
-        cardinalDirection={activeCardinal}
-        turnCue={activeTurnCue}
-        insideGeofence={insideGeofence}
-        experienceMode={experienceMode}
-        pendingPrompt={pendingAiPrompt}
-        onPendingPromptConsumed={() => setPendingAiPrompt(null)}
-      />
     </div>
   );
 };
